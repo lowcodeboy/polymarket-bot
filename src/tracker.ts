@@ -8,12 +8,27 @@ const HTTP_TIMEOUT = 10_000;
 const STATE_FILE = "bot_state.json";
 
 interface TrackerState {
-  lastSeen: Record<string, string>;
+  lastSeen: Record<string, number>;
+}
+
+// Convert any timestamp format (ISO string, Unix seconds, Unix ms) to Unix ms
+function toEpochMs(ts: unknown): number {
+  if (typeof ts === "number") {
+    // If it looks like seconds (< year 2100 in seconds), convert to ms
+    return ts < 1e12 ? ts * 1000 : ts;
+  }
+  if (typeof ts === "string" && ts.length > 0) {
+    const n = Number(ts);
+    if (!isNaN(n)) return n < 1e12 ? n * 1000 : n;
+    const d = new Date(ts).getTime();
+    if (!isNaN(d)) return d;
+  }
+  return 0;
 }
 
 export class TraderTracker {
   private wallets: string[];
-  private lastSeen: Map<string, string>;
+  private lastSeen: Map<string, number>;
 
   constructor(wallets: string[]) {
     this.wallets = wallets;
@@ -21,7 +36,7 @@ export class TraderTracker {
 
     // Load persisted lastSeen timestamps or default to now
     const saved = this.loadState();
-    const now = new Date().toISOString();
+    const now = Date.now();
     for (const wallet of wallets) {
       const savedTs = saved.lastSeen[wallet];
       this.lastSeen.set(wallet, savedTs ?? now);
@@ -60,22 +75,23 @@ export class TraderTracker {
     const activities: any[] = resp.data;
     if (!Array.isArray(activities)) return [];
 
-    const lastSeenTs = this.lastSeen.get(wallet) ?? new Date().toISOString();
+    const lastSeenMs = this.lastSeen.get(wallet) ?? Date.now();
     const newTrades: DetectedTrade[] = [];
-    let maxTs = lastSeenTs;
+    let maxMs = lastSeenMs;
 
     for (const a of activities) {
-      const ts: string = a.timestamp ?? a.createdAt ?? "";
-      if (!ts || ts <= lastSeenTs) continue;
+      const rawTs = a.timestamp ?? a.createdAt ?? "";
+      const tsMs = toEpochMs(rawTs);
+      if (tsMs <= 0 || tsMs <= lastSeenMs) continue;
 
-      if (ts > maxTs) maxTs = ts;
+      if (tsMs > maxMs) maxMs = tsMs;
 
       const size = parseFloat(a.size ?? "0");
       const price = parseFloat(a.price ?? "0");
 
       newTrades.push({
         wallet,
-        timestamp: ts,
+        timestamp: new Date(tsMs).toISOString(),
         conditionId: a.conditionId ?? a.condition_id ?? "",
         tokenId: a.asset ?? a.tokenId ?? "",
         side: (a.side ?? "BUY").toUpperCase() as "BUY" | "SELL",
@@ -92,8 +108,8 @@ export class TraderTracker {
       });
     }
 
-    if (maxTs > lastSeenTs) {
-      this.lastSeen.set(wallet, maxTs);
+    if (maxMs > lastSeenMs) {
+      this.lastSeen.set(wallet, maxMs);
       this.saveState();
     }
 
@@ -134,7 +150,10 @@ export class TraderTracker {
         params: { user: wallet },
         timeout: HTTP_TIMEOUT,
       });
-      const val = parseFloat(resp.data?.value ?? resp.data ?? "0");
+      const data = resp.data;
+      // Handle array response: [{ value: 123 }] or object: { value: 123 } or raw number
+      const raw = Array.isArray(data) ? data[0]?.value : data?.value ?? data;
+      const val = parseFloat(String(raw ?? "0"));
       return isNaN(val) ? 0 : val;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
