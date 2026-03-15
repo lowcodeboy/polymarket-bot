@@ -1,0 +1,29 @@
+{
+  "name": "polymarket-copy-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:paper": "PAPER_TRADING=true node dist/index.js",
+    "start:live": "PAPER_TRADING=false node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "dev:paper": "PAPER_TRADING=true ts-node src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@ethersproject/wallet": "^5.8.0",
+    "@polymarket/clob-client": "^5.8.0",
+    "axios": "^1.13.6",
+    "dotenv": "^17.3.1",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

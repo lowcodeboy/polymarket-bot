@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+bot.log
+paper_portfolio.json
+bot_state.json
+processed_hashes.json
