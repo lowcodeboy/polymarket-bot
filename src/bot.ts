@@ -132,6 +132,9 @@ export class CopyTradingBot {
     }
 
     if (hasNewTrades) {
+      if (this.paperEngine) {
+        await this.paperEngine.settleResolvedMarkets();
+      }
       await this.printPnLSnapshot();
     }
   }

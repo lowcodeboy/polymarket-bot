@@ -1,5 +1,6 @@
 import fs from "fs";
-import { PAPER_BALANCE } from "./config";
+import axios from "axios";
+import { PAPER_BALANCE, GAMMA_API } from "./config";
 import logger from "./logger";
 import type {
   BotOrder,
@@ -9,6 +10,8 @@ import type {
   PaperTradeRecord,
   TradingEngine,
 } from "./types";
+
+const HTTP_TIMEOUT = 10_000;
 
 const PORTFOLIO_FILE = "paper_portfolio.json";
 const MAX_HISTORY = 500;
@@ -179,6 +182,48 @@ export class PaperTradingEngine implements TradingEngine {
 
   getPositions(): Record<string, PaperPosition> {
     return this.portfolio.positions;
+  }
+
+  async settleResolvedMarkets(): Promise<void> {
+    const positions = Object.entries(this.portfolio.positions);
+    if (positions.length === 0) return;
+
+    for (const [posKey, pos] of positions) {
+      try {
+        const resp = await axios.get(`${GAMMA_API}/markets`, {
+          params: { clob_token_ids: pos.tokenId },
+          timeout: HTTP_TIMEOUT,
+        });
+
+        const markets: any[] = resp.data;
+        const market = Array.isArray(markets) ? markets[0] : null;
+        if (!market) continue;
+
+        // Check if market is resolved
+        if (!market.closed || !market.resolved) continue;
+
+        const winningOutcome: string = market.outcome ?? "";
+        const isWinner = winningOutcome.toLowerCase() === pos.outcome.toLowerCase();
+
+        const cost = pos.size * pos.avgPrice;
+        const payout = isWinner ? pos.size * 1.0 : 0;
+        const pnl = payout - cost;
+
+        this.portfolio.balance += payout;
+        this.portfolio.totalPnL += pnl;
+        delete this.portfolio.positions[posKey];
+
+        const sign = pnl >= 0 ? "+" : "";
+        logger.info(
+          `SETTLED: ${pos.title} [${pos.outcome}] → ${isWinner ? "WON" : "LOST"} | ${pos.size.toFixed(2)} tokens | Payout: $${payout.toFixed(2)} | P&L: ${sign}$${pnl.toFixed(2)}`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.debug(`Failed to check resolution for ${posKey}: ${msg}`);
+      }
+    }
+
+    this.save();
   }
 
   printSummary(): void {
