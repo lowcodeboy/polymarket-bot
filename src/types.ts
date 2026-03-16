@@ -65,6 +65,8 @@ export interface PaperPortfolio {
   positions: Record<string, PaperPosition>;
   totalTrades: number;
   totalPnL: number;
+  settlementWins: number;
+  settlementLosses: number;
   tradeHistory: PaperTradeRecord[];
 }
 

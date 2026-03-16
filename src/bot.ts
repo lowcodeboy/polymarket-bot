@@ -188,7 +188,12 @@ export class CopyTradingBot {
       const unrealizedSign = openUnrealizedPnL >= 0 ? "+" : "";
       const overallSign = overallPnL >= 0 ? "+" : "";
 
+      const winRate = this.paperEngine ? this.paperEngine.getWinRate() : null;
+
       let summaryLine = `  Cash: $${balance.toFixed(2)} | Realized P&L: ${realizedSign}$${realizedPnL.toFixed(2)}`;
+      if (winRate && (winRate.wins + winRate.losses) > 0) {
+        summaryLine += ` | Win Rate: ${winRate.rate.toFixed(0)}% (${winRate.wins}W/${winRate.losses}L)`;
+      }
       summaryLine += ` | Open: $${openInvested.toFixed(2)} (P&L: ${unrealizedSign}$${openUnrealizedPnL.toFixed(2)})`;
       if (pendingCount > 0) {
         summaryLine += ` | Pending: $${pendingCost.toFixed(2)} (${pendingCount} market${pendingCount > 1 ? "s" : ""})`;

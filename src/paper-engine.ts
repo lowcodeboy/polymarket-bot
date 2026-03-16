@@ -37,6 +37,8 @@ export class PaperTradingEngine implements TradingEngine {
           positions: data.positions ?? {},
           totalTrades: data.totalTrades ?? 0,
           totalPnL: data.totalPnL ?? 0,
+          settlementWins: data.settlementWins ?? 0,
+          settlementLosses: data.settlementLosses ?? 0,
           tradeHistory: data.tradeHistory ?? [],
         };
       }
@@ -49,6 +51,8 @@ export class PaperTradingEngine implements TradingEngine {
       positions: {},
       totalTrades: 0,
       totalPnL: 0,
+      settlementWins: 0,
+      settlementLosses: 0,
       tradeHistory: [],
     };
   }
@@ -188,6 +192,13 @@ export class PaperTradingEngine implements TradingEngine {
     return this.portfolio.totalPnL;
   }
 
+  getWinRate(): { wins: number; losses: number; rate: number } {
+    const wins = this.portfolio.settlementWins;
+    const losses = this.portfolio.settlementLosses;
+    const total = wins + losses;
+    return { wins, losses, rate: total > 0 ? (wins / total) * 100 : 0 };
+  }
+
   async settleResolvedMarkets(): Promise<void> {
     const positions = Object.entries(this.portfolio.positions);
     if (positions.length === 0) return;
@@ -214,6 +225,7 @@ export class PaperTradingEngine implements TradingEngine {
               // Both Gamma and CLOB are gone — market is dead
               const cost = pos.size * pos.avgPrice;
               this.portfolio.totalPnL -= cost;
+              this.portfolio.settlementLosses++;
               delete this.portfolio.positions[posKey];
               changed = true;
               logger.info(
@@ -267,6 +279,11 @@ export class PaperTradingEngine implements TradingEngine {
 
         this.portfolio.balance += payout;
         this.portfolio.totalPnL += pnl;
+        if (isWinner) {
+          this.portfolio.settlementWins++;
+        } else {
+          this.portfolio.settlementLosses++;
+        }
         delete this.portfolio.positions[posKey];
         changed = true;
 
