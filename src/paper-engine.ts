@@ -191,7 +191,7 @@ export class PaperTradingEngine implements TradingEngine {
     for (const [posKey, pos] of positions) {
       try {
         const resp = await axios.get(`${GAMMA_API}/markets`, {
-          params: { clob_token_ids: pos.tokenId },
+          params: { condition_ids: pos.conditionId },
           timeout: HTTP_TIMEOUT,
         });
 
