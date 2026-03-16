@@ -195,8 +195,8 @@ export class PaperTradingEngine implements TradingEngine {
           timeout: HTTP_TIMEOUT,
         });
 
-        const markets: any[] = resp.data;
-        const market = Array.isArray(markets) ? markets[0] : null;
+        const data = resp.data;
+        const market = Array.isArray(data) ? data[0] : data;
         if (!market) continue;
 
         // Check if market is resolved
@@ -205,14 +205,25 @@ export class PaperTradingEngine implements TradingEngine {
           (market.closed && market.ended) ||
           (market.closed && market.umaResolutionStatus === "resolved") ||
           (market.closed && !market.acceptingOrders && market.outcomePrices);
-        if (!isResolved) continue;
+
+        if (!isResolved) {
+          logger.info(
+            `Settlement skip ${posKey}: closed=${market.closed} ended=${market.ended} umaStatus=${market.umaResolutionStatus} acceptingOrders=${market.acceptingOrders}`,
+          );
+          continue;
+        }
 
         // Verify outcomePrices are final (0 or 1, not mid-market)
         const prices: string[] = market.outcomePrices ?? [];
         const allSettled = prices.length > 0 && prices.every(
           (p: string) => parseFloat(p) === 0 || parseFloat(p) === 1,
         );
-        if (!allSettled) continue;
+        if (!allSettled) {
+          logger.info(
+            `Settlement skip ${posKey}: outcomePrices not final: ${JSON.stringify(prices)}`,
+          );
+          continue;
+        }
 
         // Match outcome to get payout price
         // outcomes: ["Panthers", "Kraken"], outcomePrices: ["0", "1"]
