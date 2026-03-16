@@ -188,54 +188,74 @@ export class PaperTradingEngine implements TradingEngine {
     const positions = Object.entries(this.portfolio.positions);
     if (positions.length === 0) return;
 
+    let changed = false;
+
     for (const [posKey, pos] of positions) {
       try {
-        const resp = await axios.get(`${GAMMA_API}/markets`, {
-          params: { condition_ids: pos.conditionId },
-          timeout: HTTP_TIMEOUT,
-        });
+        // Try to find market data via multiple query methods
+        const market = await this.fetchMarketData(pos.tokenId, pos.conditionId);
 
-        const data = resp.data;
-        const market = Array.isArray(data) ? data[0] : data;
-        if (!market) continue;
+        if (!market) {
+          // No market data at all — check if CLOB price also 404s
+          // If both are gone, market is dead — settle as loss
+          try {
+            await axios.get(`https://clob.polymarket.com/price`, {
+              params: { token_id: pos.tokenId, side: "BUY" },
+              timeout: HTTP_TIMEOUT,
+            });
+            // Price still available — market is active, skip
+            continue;
+          } catch (priceErr: any) {
+            if (priceErr?.response?.status === 404) {
+              // Both Gamma and CLOB are gone — market is dead
+              const cost = pos.size * pos.avgPrice;
+              this.portfolio.totalPnL -= cost;
+              delete this.portfolio.positions[posKey];
+              changed = true;
+              logger.info(
+                `SETTLED (expired): ${pos.title} [${pos.outcome}] → UNKNOWN | ${pos.size.toFixed(2)} tokens | Payout: $0.00 | P&L: -$${cost.toFixed(2)}`,
+              );
+              continue;
+            }
+            continue;
+          }
+        }
 
         // Check if market is resolved
-        // Sports markets use "ended", crypto markets use "closed" + "umaResolutionStatus"
         const isResolved =
-          (market.closed && market.ended) ||
-          (market.closed && market.umaResolutionStatus === "resolved") ||
-          (market.closed && !market.acceptingOrders && market.outcomePrices);
+          market.closed === true &&
+          (market.ended === true ||
+            market.umaResolutionStatus === "resolved" ||
+            market.acceptingOrders === false);
 
-        if (!isResolved) {
-          logger.info(
-            `Settlement skip ${posKey}: closed=${market.closed} ended=${market.ended} umaStatus=${market.umaResolutionStatus} acceptingOrders=${market.acceptingOrders}`,
-          );
-          continue;
-        }
+        if (!isResolved) continue;
 
-        // Verify outcomePrices are final (0 or 1, not mid-market)
-        const prices: string[] = market.outcomePrices ?? [];
-        const allSettled = prices.length > 0 && prices.every(
-          (p: string) => parseFloat(p) === 0 || parseFloat(p) === 1,
+        // Get outcome prices — API may return arrays or JSON strings
+        const rawOutcomes = market.outcomes ?? [];
+        const rawPrices = market.outcomePrices ?? [];
+        const outcomes: string[] =
+          typeof rawOutcomes === "string" ? JSON.parse(rawOutcomes) : rawOutcomes;
+        const outcomePrices: string[] =
+          typeof rawPrices === "string" ? JSON.parse(rawPrices) : rawPrices;
+
+        // Verify prices are final (each is 0 or 1)
+        const allSettled = outcomePrices.length > 0 && outcomePrices.every(
+          (p: string) => {
+            const n = parseFloat(p);
+            return n <= 0.01 || n >= 0.99;
+          },
         );
-        if (!allSettled) {
-          logger.info(
-            `Settlement skip ${posKey}: outcomePrices not final: ${JSON.stringify(prices)}`,
-          );
-          continue;
-        }
+        if (!allSettled) continue;
 
-        // Match outcome to get payout price
-        // outcomes: ["Panthers", "Kraken"], outcomePrices: ["0", "1"]
-        const outcomes: string[] = market.outcomes ?? [];
-        const outcomePrices: string[] = market.outcomePrices ?? [];
+        // Find our outcome
         const outcomeIndex = outcomes.findIndex(
           (o: string) => o.toLowerCase() === pos.outcome.toLowerCase(),
         );
         if (outcomeIndex === -1) continue;
 
-        const settlementPrice = parseFloat(outcomePrices[outcomeIndex] ?? "0");
-        const isWinner = settlementPrice > 0.5;
+        const rawPrice = parseFloat(outcomePrices[outcomeIndex] ?? "0");
+        const settlementPrice = rawPrice >= 0.99 ? 1 : 0;
+        const isWinner = settlementPrice === 1;
 
         const cost = pos.size * pos.avgPrice;
         const payout = pos.size * settlementPrice;
@@ -244,6 +264,7 @@ export class PaperTradingEngine implements TradingEngine {
         this.portfolio.balance += payout;
         this.portfolio.totalPnL += pnl;
         delete this.portfolio.positions[posKey];
+        changed = true;
 
         const sign = pnl >= 0 ? "+" : "";
         logger.info(
@@ -251,11 +272,37 @@ export class PaperTradingEngine implements TradingEngine {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        logger.debug(`Failed to check resolution for ${posKey}: ${msg}`);
+        logger.warn(`Failed to check resolution for ${posKey}: ${msg}`);
       }
     }
 
-    this.save();
+    if (changed) this.save();
+  }
+
+  private async fetchMarketData(tokenId: string, conditionId: string): Promise<any | null> {
+    // Try clob_token_ids first (works for recent markets)
+    try {
+      const resp = await axios.get(`${GAMMA_API}/markets`, {
+        params: { clob_token_ids: tokenId },
+        timeout: HTTP_TIMEOUT,
+      });
+      const data = resp.data;
+      const market = Array.isArray(data) ? data[0] : data;
+      if (market && market.conditionId) return market;
+    } catch {}
+
+    // Try condition_ids (works for older markets)
+    try {
+      const resp = await axios.get(`${GAMMA_API}/markets`, {
+        params: { condition_ids: conditionId },
+        timeout: HTTP_TIMEOUT,
+      });
+      const data = resp.data;
+      const market = Array.isArray(data) ? data[0] : data;
+      if (market && market.conditionId) return market;
+    } catch {}
+
+    return null;
   }
 
   printSummary(): void {
