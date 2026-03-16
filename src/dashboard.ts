@@ -166,7 +166,7 @@ function render(stats) {
     html += '</table></div>';
   }
 
-  html += '<div class="updated">Last updated: ' + new Date(c.timestamp).toLocaleString() + ' | Auto-refreshes every 5s</div>';
+  html += '<div class="updated">Last updated: ' + new Date(c.timestamp).toLocaleString() + ' | Auto-refreshes every 60s</div>';
 
   document.getElementById('content').innerHTML = html;
   if (stats.history.length > 1) createCharts(stats.history);
@@ -181,7 +181,7 @@ async function refresh() {
 }
 
 refresh();
-setInterval(refresh, 5000);
+setInterval(refresh, 60000);
 </script>
 </body>
 </html>`;
