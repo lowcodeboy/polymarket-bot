@@ -1,6 +1,10 @@
 import { CopyTradingBot } from "./bot";
+import { startDashboard } from "./dashboard";
 
 const bot = new CopyTradingBot();
+
+// Start dashboard
+startDashboard(bot.getStatsCollector());
 
 process.on("SIGINT", () => {
   bot.stop();

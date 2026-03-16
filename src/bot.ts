@@ -5,7 +5,9 @@ import { TraderTracker } from "./tracker";
 import { PositionSizer } from "./sizer";
 import { PaperTradingEngine } from "./paper-engine";
 import { LiveTradingEngine } from "./live-engine";
+import { StatsCollector } from "./stats";
 import type { TradingEngine } from "./types";
+import type { StatsPosition } from "./stats";
 
 const MAX_PROCESSED = 10_000;
 const PROCESSED_FILE = "processed_hashes.json";
@@ -18,11 +20,13 @@ export class CopyTradingBot {
   private processed: Set<string>;
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private statsCollector: StatsCollector;
 
   constructor() {
     this.tracker = new TraderTracker(TRACKED_WALLETS);
     this.sizer = new PositionSizer();
     this.processed = this.loadProcessed();
+    this.statsCollector = new StatsCollector(PAPER_BALANCE);
 
     if (PAPER_TRADING) {
       const pe = new PaperTradingEngine();
@@ -31,6 +35,10 @@ export class CopyTradingBot {
     } else {
       this.engine = new LiveTradingEngine();
     }
+  }
+
+  getStatsCollector(): StatsCollector {
+    return this.statsCollector;
   }
 
   async start(): Promise<void> {
@@ -154,6 +162,7 @@ export class CopyTradingBot {
       let openUnrealizedPnL = 0;
       let pendingCost = 0;
       let pendingCount = 0;
+      const statsPositions: StatsPosition[] = [];
 
       logger.info("--- P&L SNAPSHOT ---");
 
@@ -173,12 +182,16 @@ export class CopyTradingBot {
           logger.info(
             `  ${pos.title} [${pos.outcome}] | ${pos.size.toFixed(2)} @ $${pos.avgPrice.toFixed(4)} -> $${currentPrice.toFixed(4)} | ${sign}$${unrealizedPnL.toFixed(2)} (${sign}${pnlPct.toFixed(1)}%)`,
           );
+
+          statsPositions.push({ title: pos.title, outcome: pos.outcome, size: pos.size, avgPrice: pos.avgPrice, currentPrice, pnl: unrealizedPnL, pending: false });
         } else {
           pendingCost += invested;
           pendingCount++;
           logger.info(
             `  [PENDING] ${pos.title} [${pos.outcome}] | ${pos.size.toFixed(2)} @ $${pos.avgPrice.toFixed(4)} — awaiting settlement`,
           );
+
+          statsPositions.push({ title: pos.title, outcome: pos.outcome, size: pos.size, avgPrice: pos.avgPrice, currentPrice: null, pnl: null, pending: true });
         }
       }
 
@@ -202,6 +215,23 @@ export class CopyTradingBot {
 
       logger.info(summaryLine);
       logger.info("--------------------");
+
+      // Save stats for dashboard
+      this.statsCollector.saveSnapshot({
+        timestamp: new Date().toISOString(),
+        cash: balance,
+        realizedPnL,
+        openInvested,
+        openPnL: openUnrealizedPnL,
+        pendingCost,
+        pendingCount,
+        portfolio: totalPortfolio,
+        overallPnL,
+        wins: winRate?.wins ?? 0,
+        losses: winRate?.losses ?? 0,
+        winRate: winRate?.rate ?? 0,
+        positions: statsPositions,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn(`Failed to print P&L snapshot: ${msg}`);

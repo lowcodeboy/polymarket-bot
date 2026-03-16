@@ -48,6 +48,9 @@ export const FUNDER_ADDRESS = PAPER_TRADING ? "" : required("FUNDER_ADDRESS");
 export const RPC_URL = PAPER_TRADING ? "" : required("RPC_URL");
 export const SIGNATURE_TYPE = parseInt(optional("SIGNATURE_TYPE", "0"), 10);
 
+// Dashboard
+export const DASHBOARD_PORT = parseInt(optional("DASHBOARD_PORT", "3000"), 10);
+
 // Polymarket endpoints
 export const CLOB_HOST = "https://clob.polymarket.com";
 export const DATA_API = "https://data-api.polymarket.com";
