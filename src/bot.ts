@@ -91,8 +91,9 @@ export class CopyTradingBot {
       try {
         const balance = await this.engine.getBalance();
         const traderValue = await this.tracker.getPortfolioValue(trade.wallet);
+        const positions = this.engine.getPositions();
 
-        const order = this.sizer.calculate(trade, balance, traderValue);
+        const order = this.sizer.calculate(trade, balance, traderValue, positions);
         if (!order) {
           logger.debug("Order skipped by sizer");
           continue;

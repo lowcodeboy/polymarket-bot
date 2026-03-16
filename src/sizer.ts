@@ -2,21 +2,39 @@ import {
   TRADE_MULTIPLIER,
   MAX_POSITION_PCT,
   MAX_SLIPPAGE,
+  MAX_MARKET_EXPOSURE,
+  PAPER_BALANCE,
 } from "./config";
 import logger from "./logger";
-import type { DetectedTrade, BotOrder } from "./types";
+import type { DetectedTrade, BotOrder, PaperPosition } from "./types";
 
 export class PositionSizer {
   calculate(
     trade: DetectedTrade,
     myBalance: number,
     traderValue: number,
+    positions: Record<string, PaperPosition>,
   ): BotOrder | null {
     if (trade.price <= 0 || trade.price >= 1) {
       logger.debug(
         `Skipping trade: price ${trade.price} out of range (0, 1)`,
       );
       return null;
+    }
+
+    // Check existing exposure to this market
+    if (trade.side === "BUY") {
+      const posKey = `${trade.conditionId}:${trade.outcome}`;
+      const existing = positions[posKey];
+      const currentExposure = existing ? existing.size * existing.avgPrice : 0;
+      const maxExposure = PAPER_BALANCE * MAX_MARKET_EXPOSURE;
+
+      if (currentExposure >= maxExposure) {
+        logger.debug(
+          `Skipping trade: market exposure $${currentExposure.toFixed(2)} already at cap $${maxExposure.toFixed(2)} (${(MAX_MARKET_EXPOSURE * 100).toFixed(0)}%)`,
+        );
+        return null;
+      }
     }
 
     let usdcAmount: number;
@@ -27,10 +45,24 @@ export class PositionSizer {
       usdcAmount = trade.usdcSize * TRADE_MULTIPLIER;
     }
 
-    // Cap at MAX_POSITION_PCT of balance
+    // Cap at MAX_POSITION_PCT of balance (per order)
     const maxAllowed = myBalance * MAX_POSITION_PCT;
     if (usdcAmount > maxAllowed) {
       usdcAmount = maxAllowed;
+    }
+
+    // Cap to not exceed MAX_MARKET_EXPOSURE (total position)
+    if (trade.side === "BUY") {
+      const posKey = `${trade.conditionId}:${trade.outcome}`;
+      const existing = positions[posKey];
+      const currentExposure = existing ? existing.size * existing.avgPrice : 0;
+      const maxExposure = PAPER_BALANCE * MAX_MARKET_EXPOSURE;
+      const roomLeft = maxExposure - currentExposure;
+
+      if (roomLeft <= 0) return null;
+      if (usdcAmount > roomLeft) {
+        usdcAmount = roomLeft;
+      }
     }
 
     // Skip tiny trades

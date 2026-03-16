@@ -199,14 +199,23 @@ export class PaperTradingEngine implements TradingEngine {
         const market = Array.isArray(markets) ? markets[0] : null;
         if (!market) continue;
 
-        // Check if market is resolved
-        if (!market.closed || !market.resolved) continue;
+        // Check if market is closed and ended
+        if (!market.closed || !market.ended) continue;
 
-        const winningOutcome: string = market.outcome ?? "";
-        const isWinner = winningOutcome.toLowerCase() === pos.outcome.toLowerCase();
+        // Match outcome to get payout price
+        // outcomes: ["Panthers", "Kraken"], outcomePrices: ["0", "1"]
+        const outcomes: string[] = market.outcomes ?? [];
+        const outcomePrices: string[] = market.outcomePrices ?? [];
+        const outcomeIndex = outcomes.findIndex(
+          (o: string) => o.toLowerCase() === pos.outcome.toLowerCase(),
+        );
+        if (outcomeIndex === -1) continue;
+
+        const settlementPrice = parseFloat(outcomePrices[outcomeIndex] ?? "0");
+        const isWinner = settlementPrice > 0.5;
 
         const cost = pos.size * pos.avgPrice;
-        const payout = isWinner ? pos.size * 1.0 : 0;
+        const payout = pos.size * settlementPrice;
         const pnl = payout - cost;
 
         this.portfolio.balance += payout;
