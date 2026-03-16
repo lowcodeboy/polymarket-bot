@@ -6,6 +6,7 @@ import { PositionSizer } from "./sizer";
 import { PaperTradingEngine } from "./paper-engine";
 import { LiveTradingEngine } from "./live-engine";
 import { StatsCollector } from "./stats";
+import { TelegramNotifier } from "./telegram";
 import type { TradingEngine } from "./types";
 import type { StatsPosition } from "./stats";
 
@@ -21,12 +22,14 @@ export class CopyTradingBot {
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private statsCollector: StatsCollector;
+  private telegram: TelegramNotifier;
 
   constructor() {
     this.tracker = new TraderTracker(TRACKED_WALLETS);
     this.sizer = new PositionSizer();
     this.processed = this.loadProcessed();
     this.statsCollector = new StatsCollector(PAPER_BALANCE);
+    this.telegram = new TelegramNotifier();
 
     if (PAPER_TRADING) {
       const pe = new PaperTradingEngine();
@@ -50,6 +53,7 @@ export class CopyTradingBot {
 
     this.running = true;
     logger.info("Bot started — entering main loop");
+    await this.telegram.notifyStartup();
     await this.loop();
   }
 
@@ -63,6 +67,8 @@ export class CopyTradingBot {
     if (this.paperEngine) {
       this.paperEngine.printSummary();
     }
+    this.telegram.notifyShutdown();
+    this.telegram.stop();
     logger.info("Bot stopped");
   }
 
@@ -142,7 +148,10 @@ export class CopyTradingBot {
 
     if (hasNewTrades) {
       if (this.paperEngine) {
-        await this.paperEngine.settleResolvedMarkets();
+        const settlements = await this.paperEngine.settleResolvedMarkets();
+        for (const s of settlements) {
+          await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
+        }
       }
       await this.printPnLSnapshot();
     }
@@ -215,6 +224,13 @@ export class CopyTradingBot {
 
       logger.info(summaryLine);
       logger.info("--------------------");
+
+      // Send telegram notification
+      await this.telegram.notifySnapshot(
+        balance, realizedPnL, openInvested, openUnrealizedPnL,
+        pendingCost, pendingCount, totalPortfolio,
+        winRate?.wins ?? 0, winRate?.losses ?? 0, winRate?.rate ?? 0,
+      );
 
       // Save stats for dashboard
       this.statsCollector.saveSnapshot({

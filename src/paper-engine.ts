@@ -199,11 +199,12 @@ export class PaperTradingEngine implements TradingEngine {
     return { wins, losses, rate: total > 0 ? (wins / total) * 100 : 0 };
   }
 
-  async settleResolvedMarkets(): Promise<void> {
+  async settleResolvedMarkets(): Promise<{ title: string; outcome: string; won: boolean; tokens: number; payout: number; pnl: number }[]> {
     const positions = Object.entries(this.portfolio.positions);
-    if (positions.length === 0) return;
+    if (positions.length === 0) return [];
 
     let changed = false;
+    const results: { title: string; outcome: string; won: boolean; tokens: number; payout: number; pnl: number }[] = [];
 
     for (const [posKey, pos] of positions) {
       try {
@@ -228,6 +229,7 @@ export class PaperTradingEngine implements TradingEngine {
               this.portfolio.settlementLosses++;
               delete this.portfolio.positions[posKey];
               changed = true;
+              results.push({ title: pos.title, outcome: pos.outcome, won: false, tokens: pos.size, payout: 0, pnl: -cost });
               logger.info(
                 `SETTLED (expired): ${pos.title} [${pos.outcome}] → UNKNOWN | ${pos.size.toFixed(2)} tokens | Payout: $0.00 | P&L: -$${cost.toFixed(2)}`,
               );
@@ -287,6 +289,7 @@ export class PaperTradingEngine implements TradingEngine {
         delete this.portfolio.positions[posKey];
         changed = true;
 
+        results.push({ title: pos.title, outcome: pos.outcome, won: isWinner, tokens: pos.size, payout, pnl });
         const sign = pnl >= 0 ? "+" : "";
         logger.info(
           `SETTLED: ${pos.title} [${pos.outcome}] → ${isWinner ? "WON" : "LOST"} | ${pos.size.toFixed(2)} tokens | Payout: $${payout.toFixed(2)} | P&L: ${sign}$${pnl.toFixed(2)}`,
@@ -298,6 +301,7 @@ export class PaperTradingEngine implements TradingEngine {
     }
 
     if (changed) this.save();
+    return results;
   }
 
   private async fetchMarketData(tokenId: string, conditionId: string): Promise<any | null> {

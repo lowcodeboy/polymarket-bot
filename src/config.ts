@@ -51,6 +51,11 @@ export const SIGNATURE_TYPE = parseInt(optional("SIGNATURE_TYPE", "0"), 10);
 // Dashboard
 export const DASHBOARD_PORT = parseInt(optional("DASHBOARD_PORT", "3000"), 10);
 
+// Telegram notifications
+export const TELEGRAM_BOT_TOKEN = optional("TELEGRAM_BOT_TOKEN", "");
+export const TELEGRAM_CHAT_ID = optional("TELEGRAM_CHAT_ID", "");
+export const TELEGRAM_MILESTONE_STEP = parseFloat(optional("TELEGRAM_MILESTONE_STEP", "100"));
+
 // Polymarket endpoints
 export const CLOB_HOST = "https://clob.polymarket.com";
 export const DATA_API = "https://data-api.polymarket.com";
