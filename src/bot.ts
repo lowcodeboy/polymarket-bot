@@ -147,44 +147,55 @@ export class CopyTradingBot {
       if (entries.length === 0) return;
 
       const balance = await this.engine.getBalance();
-      let totalInvested = 0;
-      let totalCurrentValue = 0;
-      let totalUnrealizedPnL = 0;
+      const realizedPnL = this.paperEngine ? this.paperEngine.getRealizedPnL() : 0;
+
+      let openInvested = 0;
+      let openCurrentValue = 0;
+      let openUnrealizedPnL = 0;
+      let pendingCost = 0;
+      let pendingCount = 0;
 
       logger.info("--- P&L SNAPSHOT ---");
 
       for (const [key, pos] of entries) {
         const currentPrice = await this.tracker.getTokenPrice(pos.tokenId, "BUY");
         const invested = pos.size * pos.avgPrice;
-        totalInvested += invested;
 
         if (currentPrice !== null) {
           const currentValue = pos.size * currentPrice;
           const unrealizedPnL = currentValue - invested;
           const pnlPct = invested > 0 ? (unrealizedPnL / invested) * 100 : 0;
-          totalCurrentValue += currentValue;
-          totalUnrealizedPnL += unrealizedPnL;
+          openInvested += invested;
+          openCurrentValue += currentValue;
+          openUnrealizedPnL += unrealizedPnL;
 
           const sign = unrealizedPnL >= 0 ? "+" : "";
           logger.info(
             `  ${pos.title} [${pos.outcome}] | ${pos.size.toFixed(2)} @ $${pos.avgPrice.toFixed(4)} -> $${currentPrice.toFixed(4)} | ${sign}$${unrealizedPnL.toFixed(2)} (${sign}${pnlPct.toFixed(1)}%)`,
           );
         } else {
-          totalCurrentValue += invested;
+          pendingCost += invested;
+          pendingCount++;
           logger.info(
-            `  ${pos.title} [${pos.outcome}] | ${pos.size.toFixed(2)} @ $${pos.avgPrice.toFixed(4)} -> price unavailable`,
+            `  [PENDING] ${pos.title} [${pos.outcome}] | ${pos.size.toFixed(2)} @ $${pos.avgPrice.toFixed(4)} — awaiting settlement`,
           );
         }
       }
 
-      const totalPortfolio = balance + totalCurrentValue;
+      const totalPortfolio = balance + openCurrentValue + pendingCost;
       const overallPnL = totalPortfolio - PAPER_BALANCE;
-      const sign = totalUnrealizedPnL >= 0 ? "+" : "";
+      const realizedSign = realizedPnL >= 0 ? "+" : "";
+      const unrealizedSign = openUnrealizedPnL >= 0 ? "+" : "";
       const overallSign = overallPnL >= 0 ? "+" : "";
 
-      logger.info(
-        `  Cash: $${balance.toFixed(2)} | Invested: $${totalInvested.toFixed(2)} | Unrealized P&L: ${sign}$${totalUnrealizedPnL.toFixed(2)} | Portfolio: $${totalPortfolio.toFixed(2)} (${overallSign}${overallPnL.toFixed(2)})`,
-      );
+      let summaryLine = `  Cash: $${balance.toFixed(2)} | Realized P&L: ${realizedSign}$${realizedPnL.toFixed(2)}`;
+      summaryLine += ` | Open: $${openInvested.toFixed(2)} (P&L: ${unrealizedSign}$${openUnrealizedPnL.toFixed(2)})`;
+      if (pendingCount > 0) {
+        summaryLine += ` | Pending: $${pendingCost.toFixed(2)} (${pendingCount} market${pendingCount > 1 ? "s" : ""})`;
+      }
+      summaryLine += ` | Portfolio: $${totalPortfolio.toFixed(2)} (${overallSign}${overallPnL.toFixed(2)})`;
+
+      logger.info(summaryLine);
       logger.info("--------------------");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

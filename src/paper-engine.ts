@@ -184,6 +184,10 @@ export class PaperTradingEngine implements TradingEngine {
     return this.portfolio.positions;
   }
 
+  getRealizedPnL(): number {
+    return this.portfolio.totalPnL;
+  }
+
   async settleResolvedMarkets(): Promise<void> {
     const positions = Object.entries(this.portfolio.positions);
     if (positions.length === 0) return;
