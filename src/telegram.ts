@@ -12,6 +12,7 @@ export class TelegramNotifier {
   private dailySummaryTimer: ReturnType<typeof setInterval> | null = null;
   private lastTradeTime: number = Date.now();
   private inactivityTimer: ReturnType<typeof setInterval> | null = null;
+  private lastSnapshotSent: number = 0;
   private dailyStats = { trades: 0, wins: 0, losses: 0, startPnL: 0, startSet: false };
 
   constructor() {
@@ -61,6 +62,23 @@ export class TelegramNotifier {
   }
 
   async notifySnapshot(cash: number, realizedPnL: number, openInvested: number, openPnL: number, pendingCost: number, pendingCount: number, portfolio: number, wins: number, losses: number, winRate: number): Promise<void> {
+    const now = Date.now();
+    const elapsed = now - this.lastSnapshotSent;
+
+    // Only send snapshot every 30 minutes
+    if (elapsed < 30 * 60 * 1000 && this.lastSnapshotSent > 0) {
+      // Still update daily stats and check milestones
+      if (!this.dailyStats.startSet) {
+        this.dailyStats.startPnL = realizedPnL;
+        this.dailyStats.startSet = true;
+      }
+      await this.checkMilestone(portfolio - PAPER_BALANCE);
+      this.lastTradeTime = now;
+      return;
+    }
+
+    this.lastSnapshotSent = now;
+
     const overallPnL = portfolio - PAPER_BALANCE;
     const overallSign = overallPnL >= 0 ? "+" : "";
     const realizedSign = realizedPnL >= 0 ? "+" : "";
