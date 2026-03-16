@@ -199,8 +199,20 @@ export class PaperTradingEngine implements TradingEngine {
         const market = Array.isArray(markets) ? markets[0] : null;
         if (!market) continue;
 
-        // Check if market is closed and ended
-        if (!market.closed || !market.ended) continue;
+        // Check if market is resolved
+        // Sports markets use "ended", crypto markets use "closed" + "umaResolutionStatus"
+        const isResolved =
+          (market.closed && market.ended) ||
+          (market.closed && market.umaResolutionStatus === "resolved") ||
+          (market.closed && !market.acceptingOrders && market.outcomePrices);
+        if (!isResolved) continue;
+
+        // Verify outcomePrices are final (0 or 1, not mid-market)
+        const prices: string[] = market.outcomePrices ?? [];
+        const allSettled = prices.length > 0 && prices.every(
+          (p: string) => parseFloat(p) === 0 || parseFloat(p) === 1,
+        );
+        if (!allSettled) continue;
 
         // Match outcome to get payout price
         // outcomes: ["Panthers", "Kraken"], outcomePrices: ["0", "1"]
