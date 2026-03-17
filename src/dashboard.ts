@@ -78,7 +78,7 @@ function getHTML(): string {
 let portfolioChart = null;
 let pnlChart = null;
 let allStats = null;
-let selectedDay = 'all';
+let selectedDay = "all";
 
 function fmt(n) { return n >= 0 ? '+$' + n.toFixed(2) : '-$' + Math.abs(n).toFixed(2); }
 function fmtD(n) { return '$' + n.toFixed(2); }
@@ -105,7 +105,7 @@ function getAvailableDays(history) {
 }
 
 function filterByDay(history, day) {
-  if (day === 'all') return history;
+  if (day === "all") return history;
   return history.filter(h => dateKey(h.timestamp) === day);
 }
 
@@ -116,7 +116,7 @@ function getDayStats(history, day, startBalance) {
   const last = filtered[filtered.length - 1];
   const first = filtered[0];
 
-  if (day === 'all') {
+  if (day === "all") {
     return {
       portfolio: last.portfolio,
       overallPnL: last.overallPnL,
@@ -167,7 +167,7 @@ function getDayStats(history, day, startBalance) {
 function createCharts(history) {
   const labels = history.map(h => {
     const d = new Date(h.timestamp);
-    if (selectedDay === 'all') {
+    if (selectedDay === "all") {
       return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -183,7 +183,7 @@ function createCharts(history) {
     }
   };
 
-  const pCtx = document.getElementById('portfolioChart').getContext('2d');
+  const pCtx = document.getElementById("portfolioChart").getContext("2d");
   if (portfolioChart) portfolioChart.destroy();
   portfolioChart = new Chart(pCtx, {
     type: 'line',
@@ -201,7 +201,7 @@ function createCharts(history) {
     options: { ...chartOpts, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, ticks: { ...chartOpts.scales.y.ticks, callback: v => '$' + v } } } }
   });
 
-  const rCtx = document.getElementById('pnlChart').getContext('2d');
+  const rCtx = document.getElementById("pnlChart").getContext("2d");
   if (pnlChart) pnlChart.destroy();
   pnlChart = new Chart(rCtx, {
     type: 'line',
@@ -227,7 +227,7 @@ function selectDay(day) {
 
 function renderWithStats(stats) {
   if (!stats.current || stats.history.length === 0) {
-    document.getElementById('content').innerHTML = '<div class="no-data">Waiting for first trade...</div>';
+    document.getElementById("content").innerHTML = '<div class="no-data">Waiting for first trade...</div>';
     return;
   }
 
@@ -236,7 +236,7 @@ function renderWithStats(stats) {
   const dayData = getDayStats(stats.history, selectedDay, stats.startBalance);
   if (!dayData) return;
 
-  const isDay = selectedDay !== 'all';
+  const isDay = selectedDay !== "all";
   const winTotal = isDay && dayData.dayWins !== null ? dayData.dayWins + dayData.dayLosses : dayData.wins + dayData.losses;
   const wins = isDay && dayData.dayWins !== null ? dayData.dayWins : dayData.wins;
   const losses = isDay && dayData.dayLosses !== null ? dayData.dayLosses : dayData.losses;
@@ -245,9 +245,9 @@ function renderWithStats(stats) {
 
   // Day selector
   let html = '<div class="day-selector">';
-  html += '<button class="day-btn' + (selectedDay === 'all' ? ' active' : '') + '" onclick="selectDay(\'all\')">All</button>';
+  html += '<button class="day-btn' + (selectedDay === "all" ? ' active' : '') + '" onclick="selectDay(&quot;all&quot;)">All</button>';
   for (const day of days) {
-    html += '<button class="day-btn' + (selectedDay === day ? ' active' : '') + '" onclick="selectDay(\'' + day + '\')">' + dateName(day) + '</button>';
+    html += '<button class="day-btn' + (selectedDay === day ? ' active' : '') + '" onclick="selectDay(&quot;' + day + '&quot;)">' + dateName(day) + '</button>';
   }
   html += '</div>';
 
@@ -297,7 +297,7 @@ function renderWithStats(stats) {
 
   html += '<div class="updated">Last updated: ' + new Date(dayData.timestamp).toLocaleString() + ' | Auto-refreshes every 60s</div>';
 
-  document.getElementById('content').innerHTML = html;
+  document.getElementById("content").innerHTML = html;
   if (filteredHistory.length > 1) createCharts(filteredHistory);
 }
 
@@ -308,7 +308,7 @@ function render(stats) {
 
 async function refresh() {
   try {
-    const res = await fetch('/api/stats');
+    const res = await fetch("/api/stats");
     const stats = await res.json();
     render(stats);
   } catch {}
