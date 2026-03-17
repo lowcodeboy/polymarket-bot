@@ -70,8 +70,20 @@ export interface PaperPortfolio {
   tradeHistory: PaperTradeRecord[];
 }
 
+export interface SettlementResult {
+  title: string;
+  outcome: string;
+  won: boolean;
+  tokens: number;
+  payout: number;
+  pnl: number;
+}
+
 export interface TradingEngine {
   execute(order: BotOrder): Promise<OrderResult>;
   getBalance(): Promise<number>;
   getPositions(): Record<string, PaperPosition>;
+  getRealizedPnL(): number;
+  getWinRate(): { wins: number; losses: number; rate: number };
+  settleResolvedMarkets(): Promise<SettlementResult[]>;
 }

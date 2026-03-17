@@ -8,6 +8,7 @@ import type {
   PaperPortfolio,
   PaperPosition,
   PaperTradeRecord,
+  SettlementResult,
   TradingEngine,
 } from "./types";
 
@@ -199,12 +200,12 @@ export class PaperTradingEngine implements TradingEngine {
     return { wins, losses, rate: total > 0 ? (wins / total) * 100 : 0 };
   }
 
-  async settleResolvedMarkets(): Promise<{ title: string; outcome: string; won: boolean; tokens: number; payout: number; pnl: number }[]> {
+  async settleResolvedMarkets(): Promise<SettlementResult[]> {
     const positions = Object.entries(this.portfolio.positions);
     if (positions.length === 0) return [];
 
     let changed = false;
-    const results: { title: string; outcome: string; won: boolean; tokens: number; payout: number; pnl: number }[] = [];
+    const results: SettlementResult[] = [];
 
     for (const [posKey, pos] of positions) {
       try {

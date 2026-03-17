@@ -147,11 +147,9 @@ export class CopyTradingBot {
     }
 
     if (hasNewTrades) {
-      if (this.paperEngine) {
-        const settlements = await this.paperEngine.settleResolvedMarkets();
-        for (const s of settlements) {
-          await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
-        }
+      const settlements = await this.engine.settleResolvedMarkets();
+      for (const s of settlements) {
+        await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
       }
       await this.printPnLSnapshot();
     }
@@ -164,7 +162,7 @@ export class CopyTradingBot {
       if (entries.length === 0) return;
 
       const balance = await this.engine.getBalance();
-      const realizedPnL = this.paperEngine ? this.paperEngine.getRealizedPnL() : 0;
+      const realizedPnL = this.engine.getRealizedPnL();
 
       let openInvested = 0;
       let openCurrentValue = 0;
@@ -210,10 +208,10 @@ export class CopyTradingBot {
       const unrealizedSign = openUnrealizedPnL >= 0 ? "+" : "";
       const overallSign = overallPnL >= 0 ? "+" : "";
 
-      const winRate = this.paperEngine ? this.paperEngine.getWinRate() : null;
+      const winRate = this.engine.getWinRate();
 
       let summaryLine = `  Cash: $${balance.toFixed(2)} | Realized P&L: ${realizedSign}$${realizedPnL.toFixed(2)}`;
-      if (winRate && (winRate.wins + winRate.losses) > 0) {
+      if ((winRate.wins + winRate.losses) > 0) {
         summaryLine += ` | Win Rate: ${winRate.rate.toFixed(0)}% (${winRate.wins}W/${winRate.losses}L)`;
       }
       summaryLine += ` | Open: $${openInvested.toFixed(2)} (P&L: ${unrealizedSign}$${openUnrealizedPnL.toFixed(2)})`;
@@ -229,7 +227,7 @@ export class CopyTradingBot {
       await this.telegram.notifySnapshot(
         balance, realizedPnL, openInvested, openUnrealizedPnL,
         pendingCost, pendingCount, totalPortfolio,
-        winRate?.wins ?? 0, winRate?.losses ?? 0, winRate?.rate ?? 0,
+        winRate.wins, winRate.losses, winRate.rate,
       );
 
       // Save stats for dashboard
@@ -243,9 +241,9 @@ export class CopyTradingBot {
         pendingCount,
         portfolio: totalPortfolio,
         overallPnL,
-        wins: winRate?.wins ?? 0,
-        losses: winRate?.losses ?? 0,
-        winRate: winRate?.rate ?? 0,
+        wins: winRate.wins,
+        losses: winRate.losses,
+        winRate: winRate.rate,
         positions: statsPositions,
       });
     } catch (err) {
