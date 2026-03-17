@@ -1,7 +1,7 @@
 import fs from "fs";
 
 const STATS_FILE = "dashboard_stats.json";
-const MAX_HISTORY = 2880; // ~24h at one snapshot per 30s
+const MAX_HISTORY = 20000; // ~7 days of data
 
 export interface StatsSnapshot {
   timestamp: string;

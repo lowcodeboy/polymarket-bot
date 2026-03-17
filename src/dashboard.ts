@@ -1,5 +1,5 @@
 import http from "http";
-import { DASHBOARD_PORT } from "./config";
+import { DASHBOARD_PORT, PAPER_TRADING } from "./config";
 import logger from "./logger";
 import type { StatsCollector } from "./stats";
 
@@ -27,6 +27,7 @@ export function startDashboard(statsCollector: StatsCollector): void {
 }
 
 function getHTML(): string {
+  const mode = PAPER_TRADING ? "Paper" : "Live";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,11 +39,16 @@ function getHTML(): string {
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: #0a0a0f; color: #e0e0e0; padding: 20px; }
   h1 { text-align: center; color: #00d4aa; margin-bottom: 8px; font-size: 1.6em; }
-  .subtitle { text-align: center; color: #666; margin-bottom: 24px; font-size: 0.9em; }
+  .subtitle { text-align: center; color: #666; margin-bottom: 20px; font-size: 0.9em; }
+  .day-selector { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+  .day-btn { background: #14141f; border: 1px solid #2a2a3a; border-radius: 8px; padding: 8px 16px; color: #888; cursor: pointer; font-size: 0.85em; font-family: inherit; transition: all 0.2s; }
+  .day-btn:hover { border-color: #00d4aa; color: #e0e0e0; }
+  .day-btn.active { background: #00d4aa; color: #0a0a0f; border-color: #00d4aa; font-weight: bold; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
   .card { background: #14141f; border: 1px solid #2a2a3a; border-radius: 10px; padding: 16px; text-align: center; }
   .card .label { color: #888; font-size: 0.75em; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
   .card .value { font-size: 1.5em; font-weight: bold; }
+  .card .sub { color: #666; font-size: 0.7em; margin-top: 4px; }
   .green { color: #00d4aa; }
   .red { color: #ff4466; }
   .neutral { color: #e0e0e0; }
@@ -64,21 +70,106 @@ function getHTML(): string {
 </head>
 <body>
 <h1>Polymarket Copy Bot</h1>
-<p class="subtitle">Paper Trading Dashboard</p>
+<p class="subtitle">${mode} Trading Dashboard</p>
 
 <div id="content"><div class="no-data">Waiting for data...</div></div>
 
 <script>
 let portfolioChart = null;
 let pnlChart = null;
+let allStats = null;
+let selectedDay = 'all';
 
 function fmt(n) { return n >= 0 ? '+$' + n.toFixed(2) : '-$' + Math.abs(n).toFixed(2); }
 function fmtD(n) { return '$' + n.toFixed(2); }
 function cls(n) { return n >= 0 ? 'green' : 'red'; }
 
+function dateKey(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function dateName(key) {
+  const d = new Date(key + 'T12:00:00');
+  const today = dateKey(new Date().toISOString());
+  const yesterday = dateKey(new Date(Date.now() - 86400000).toISOString());
+  if (key === today) return 'Today';
+  if (key === yesterday) return 'Yesterday';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function getAvailableDays(history) {
+  const days = new Set();
+  for (const h of history) days.add(dateKey(h.timestamp));
+  return Array.from(days).sort();
+}
+
+function filterByDay(history, day) {
+  if (day === 'all') return history;
+  return history.filter(h => dateKey(h.timestamp) === day);
+}
+
+function getDayStats(history, day, startBalance) {
+  const filtered = filterByDay(history, day);
+  if (filtered.length === 0) return null;
+
+  const last = filtered[filtered.length - 1];
+  const first = filtered[0];
+
+  if (day === 'all') {
+    return {
+      portfolio: last.portfolio,
+      overallPnL: last.overallPnL,
+      realizedPnL: last.realizedPnL,
+      cash: last.cash,
+      wins: last.wins,
+      losses: last.losses,
+      winRate: last.winRate,
+      openInvested: last.openInvested,
+      openPnL: last.openPnL,
+      pendingCost: last.pendingCost,
+      pendingCount: last.pendingCount,
+      positions: last.positions,
+      timestamp: last.timestamp,
+      dayRealizedPnL: null,
+      dayWins: null,
+      dayLosses: null,
+      settlements: null,
+    };
+  }
+
+  const dayRealizedPnL = last.realizedPnL - first.realizedPnL;
+  const dayWins = last.wins - first.wins;
+  const dayLosses = last.losses - first.losses;
+  const daySettlements = dayWins + dayLosses;
+
+  return {
+    portfolio: last.portfolio,
+    overallPnL: last.overallPnL,
+    realizedPnL: last.realizedPnL,
+    cash: last.cash,
+    wins: last.wins,
+    losses: last.losses,
+    winRate: last.winRate,
+    openInvested: last.openInvested,
+    openPnL: last.openPnL,
+    pendingCost: last.pendingCost,
+    pendingCount: last.pendingCount,
+    positions: last.positions,
+    timestamp: last.timestamp,
+    dayRealizedPnL: dayRealizedPnL,
+    dayWins: dayWins,
+    dayLosses: dayLosses,
+    settlements: daySettlements,
+  };
+}
+
 function createCharts(history) {
   const labels = history.map(h => {
     const d = new Date(h.timestamp);
+    if (selectedDay === 'all') {
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
 
@@ -129,47 +220,90 @@ function createCharts(history) {
   });
 }
 
-function render(stats) {
-  const c = stats.current;
-  if (!c) { document.getElementById('content').innerHTML = '<div class="no-data">Waiting for first trade...</div>'; return; }
+function selectDay(day) {
+  selectedDay = day;
+  if (allStats) renderWithStats(allStats);
+}
 
-  const winTotal = c.wins + c.losses;
-  const winRateText = winTotal > 0 ? c.winRate.toFixed(0) + '% (' + c.wins + 'W/' + c.losses + 'L)' : 'N/A';
+function renderWithStats(stats) {
+  if (!stats.current || stats.history.length === 0) {
+    document.getElementById('content').innerHTML = '<div class="no-data">Waiting for first trade...</div>';
+    return;
+  }
 
-  let html = '<div class="cards">';
-  html += '<div class="card"><div class="label">Portfolio</div><div class="value ' + cls(c.overallPnL) + '">' + fmtD(c.portfolio) + '</div></div>';
-  html += '<div class="card"><div class="label">Overall P&L</div><div class="value ' + cls(c.overallPnL) + '">' + fmt(c.overallPnL) + '</div></div>';
-  html += '<div class="card"><div class="label">Realized P&L</div><div class="value ' + cls(c.realizedPnL) + '">' + fmt(c.realizedPnL) + '</div></div>';
-  html += '<div class="card"><div class="label">Cash</div><div class="value neutral">' + fmtD(c.cash) + '</div></div>';
-  html += '<div class="card"><div class="label">Win Rate</div><div class="value ' + (c.winRate >= 50 ? 'green' : 'red') + '">' + winRateText + '</div></div>';
-  html += '<div class="card"><div class="label">Open Positions</div><div class="value neutral">' + fmtD(c.openInvested) + '</div></div>';
-  html += '<div class="card"><div class="label">Unrealized P&L</div><div class="value ' + cls(c.openPnL) + '">' + fmt(c.openPnL) + '</div></div>';
-  if (c.pendingCount > 0) {
-    html += '<div class="card"><div class="label">Pending (' + c.pendingCount + ' markets)</div><div class="value neutral">' + fmtD(c.pendingCost) + '</div></div>';
+  const days = getAvailableDays(stats.history);
+  const filteredHistory = filterByDay(stats.history, selectedDay);
+  const dayData = getDayStats(stats.history, selectedDay, stats.startBalance);
+  if (!dayData) return;
+
+  const isDay = selectedDay !== 'all';
+  const winTotal = isDay && dayData.dayWins !== null ? dayData.dayWins + dayData.dayLosses : dayData.wins + dayData.losses;
+  const wins = isDay && dayData.dayWins !== null ? dayData.dayWins : dayData.wins;
+  const losses = isDay && dayData.dayLosses !== null ? dayData.dayLosses : dayData.losses;
+  const winRate = winTotal > 0 ? (wins / winTotal) * 100 : 0;
+  const winRateText = winTotal > 0 ? winRate.toFixed(0) + '% (' + wins + 'W/' + losses + 'L)' : 'N/A';
+
+  // Day selector
+  let html = '<div class="day-selector">';
+  html += '<button class="day-btn' + (selectedDay === 'all' ? ' active' : '') + '" onclick="selectDay(\'all\')">All</button>';
+  for (const day of days) {
+    html += '<button class="day-btn' + (selectedDay === day ? ' active' : '') + '" onclick="selectDay(\'' + day + '\')">' + dateName(day) + '</button>';
   }
   html += '</div>';
 
-  html += '<div class="charts">';
-  html += '<div class="chart-box"><h3>Portfolio Value</h3><div style="height:250px"><canvas id="portfolioChart"></canvas></div></div>';
-  html += '<div class="chart-box"><h3>Realized P&L</h3><div style="height:250px"><canvas id="pnlChart"></canvas></div></div>';
+  // Cards
+  html += '<div class="cards">';
+  html += '<div class="card"><div class="label">Portfolio</div><div class="value ' + cls(dayData.overallPnL) + '">' + fmtD(dayData.portfolio) + '</div></div>';
+  html += '<div class="card"><div class="label">Overall P&L</div><div class="value ' + cls(dayData.overallPnL) + '">' + fmt(dayData.overallPnL) + '</div></div>';
+
+  if (isDay && dayData.dayRealizedPnL !== null) {
+    html += '<div class="card"><div class="label">Day Realized P&L</div><div class="value ' + cls(dayData.dayRealizedPnL) + '">' + fmt(dayData.dayRealizedPnL) + '</div><div class="sub">Total: ' + fmt(dayData.realizedPnL) + '</div></div>';
+  } else {
+    html += '<div class="card"><div class="label">Realized P&L</div><div class="value ' + cls(dayData.realizedPnL) + '">' + fmt(dayData.realizedPnL) + '</div></div>';
+  }
+
+  html += '<div class="card"><div class="label">Cash</div><div class="value neutral">' + fmtD(dayData.cash) + '</div></div>';
+  html += '<div class="card"><div class="label">Win Rate' + (isDay ? ' (Day)' : '') + '</div><div class="value ' + (winRate >= 50 ? 'green' : 'red') + '">' + winRateText + '</div></div>';
+
+  if (isDay && dayData.settlements !== null) {
+    html += '<div class="card"><div class="label">Day Settlements</div><div class="value neutral">' + dayData.settlements + '</div></div>';
+  }
+
+  html += '<div class="card"><div class="label">Open Positions</div><div class="value neutral">' + fmtD(dayData.openInvested) + '</div></div>';
+  html += '<div class="card"><div class="label">Unrealized P&L</div><div class="value ' + cls(dayData.openPnL) + '">' + fmt(dayData.openPnL) + '</div></div>';
+  if (dayData.pendingCount > 0) {
+    html += '<div class="card"><div class="label">Pending (' + dayData.pendingCount + ' markets)</div><div class="value neutral">' + fmtD(dayData.pendingCost) + '</div></div>';
+  }
   html += '</div>';
 
-  if (c.positions.length > 0) {
-    html += '<div class="positions"><h3>Positions</h3><table><tr><th>Status</th><th>Market</th><th>Size</th><th>Entry</th><th>Current</th><th>P&L</th></tr>';
-    for (const p of c.positions) {
+  // Charts
+  html += '<div class="charts">';
+  html += '<div class="chart-box"><h3>Portfolio Value' + (isDay ? ' (' + dateName(selectedDay) + ')' : '') + '</h3><div style="height:250px"><canvas id="portfolioChart"></canvas></div></div>';
+  html += '<div class="chart-box"><h3>Realized P&L' + (isDay ? ' (' + dateName(selectedDay) + ')' : '') + '</h3><div style="height:250px"><canvas id="pnlChart"></canvas></div></div>';
+  html += '</div>';
+
+  // Positions table
+  if (dayData.positions && dayData.positions.length > 0) {
+    html += '<div class="positions"><h3>Current Positions</h3><table><tr><th>Status</th><th>Market</th><th>Size</th><th>Entry</th><th>Current</th><th>P&L</th></tr>';
+    for (const p of dayData.positions) {
       const status = p.pending ? '<span class="status-dot dot-pending"></span>Pending' : '<span class="status-dot dot-open"></span>Open';
-      const current = p.currentPrice !== null ? '$' + p.currentPrice.toFixed(4) : '—';
-      const pnl = p.pnl !== null ? fmt(p.pnl) : '—';
+      const current = p.currentPrice !== null ? '$' + p.currentPrice.toFixed(4) : '---';
+      const pnl = p.pnl !== null ? fmt(p.pnl) : '---';
       const pnlClass = p.pnl !== null ? cls(p.pnl) : 'neutral';
       html += '<tr><td>' + status + '</td><td>' + p.title + ' [' + p.outcome + ']</td><td>' + p.size.toFixed(2) + '</td><td>$' + p.avgPrice.toFixed(4) + '</td><td>' + current + '</td><td class="' + pnlClass + '">' + pnl + '</td></tr>';
     }
     html += '</table></div>';
   }
 
-  html += '<div class="updated">Last updated: ' + new Date(c.timestamp).toLocaleString() + ' | Auto-refreshes every 60s</div>';
+  html += '<div class="updated">Last updated: ' + new Date(dayData.timestamp).toLocaleString() + ' | Auto-refreshes every 60s</div>';
 
   document.getElementById('content').innerHTML = html;
-  if (stats.history.length > 1) createCharts(stats.history);
+  if (filteredHistory.length > 1) createCharts(filteredHistory);
+}
+
+function render(stats) {
+  allStats = stats;
+  renderWithStats(stats);
 }
 
 async function refresh() {
