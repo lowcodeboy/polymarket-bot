@@ -39,7 +39,11 @@ function getHTML(): string {
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: #0a0a0f; color: #e0e0e0; padding: 20px; }
   h1 { text-align: center; color: #00d4aa; margin-bottom: 8px; font-size: 1.6em; }
-  .subtitle { text-align: center; color: #666; margin-bottom: 20px; font-size: 0.9em; }
+  .subtitle { text-align: center; color: #666; margin-bottom: 20px; font-size: 0.9em; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .mode-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+  .mode-dot.paper { background: #ffffff; }
+  .mode-dot.live { background: #ff4466; animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 4px #ff4466; } 50% { opacity: 0.4; box-shadow: 0 0 12px #ff4466; } }
   .day-selector { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
   .day-btn { background: #14141f; border: 1px solid #2a2a3a; border-radius: 8px; padding: 8px 16px; color: #888; cursor: pointer; font-size: 0.85em; font-family: inherit; transition: all 0.2s; }
   .day-btn:hover { border-color: #00d4aa; color: #e0e0e0; }
@@ -70,7 +74,7 @@ function getHTML(): string {
 </head>
 <body>
 <h1>Polymarket Copy Bot</h1>
-<p class="subtitle">${mode} Trading Dashboard</p>
+<p class="subtitle"><span class="mode-dot ${PAPER_TRADING ? "paper" : "live"}"></span>${mode} Trading Dashboard</p>
 
 <div id="content"><div class="no-data">Waiting for data...</div></div>
 
