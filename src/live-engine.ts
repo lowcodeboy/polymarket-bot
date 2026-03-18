@@ -1,5 +1,6 @@
 import fs from "fs";
 import { Wallet } from "@ethersproject/wallet";
+import { Interface } from "@ethersproject/abi";
 import axios from "axios";
 import {
   ClobClient,
@@ -7,6 +8,10 @@ import {
   SignatureType,
   Side,
 } from "@polymarket/clob-client";
+import {
+  RelayClient,
+  RelayerTxType,
+} from "@polymarket/builder-relayer-client";
 import {
   PRIVATE_KEY,
   FUNDER_ADDRESS,
@@ -31,6 +36,14 @@ import type {
 
 const HTTP_TIMEOUT = 10_000;
 const LIVE_PORTFOLIO_FILE = "live_portfolio.json";
+const RELAYER_URL = "https://relayer-v2.polymarket.com/";
+const CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
+const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+const PARENT_COLLECTION_ID = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+const ctfInterface = new Interface([
+  "function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)",
+]);
 
 interface LivePortfolio {
   positions: Record<string, PaperPosition>;
@@ -48,6 +61,7 @@ function toSignatureType(n: number): SignatureType {
 
 export class LiveTradingEngine implements TradingEngine {
   private client: ClobClient | null = null;
+  private relayClient: RelayClient | null = null;
   private portfolio: LivePortfolio;
 
   constructor() {
@@ -137,7 +151,15 @@ export class LiveTradingEngine implements TradingEngine {
       FUNDER_ADDRESS,
     );
 
-    logger.info("Live trading engine initialized");
+    this.relayClient = new RelayClient(
+      RELAYER_URL,
+      CHAIN_ID,
+      wallet,
+      undefined,
+      RelayerTxType.SAFE,
+    );
+
+    logger.info("Live trading engine initialized (with auto-redeem)");
   }
 
   async execute(order: BotOrder): Promise<OrderResult> {
@@ -172,13 +194,19 @@ export class LiveTradingEngine implements TradingEngine {
       );
 
       const orderId =
-        result?.orderID ?? result?.orderIds?.[0] ?? result?.id ?? "unknown";
+        result?.orderID ?? result?.orderIds?.[0] ?? result?.id ?? null;
+
+      if (!orderId) {
+        const errorMsg = result?.error ?? result?.message ?? "No order ID returned";
+        logger.error(`Live order rejected: ${errorMsg} | ${order.side} ${order.size.toFixed(4)} @ $${order.price.toFixed(4)}`);
+        return { success: false, error: String(errorMsg), paper: false };
+      }
 
       logger.info(
         `Live order placed: ${orderId} | ${order.side} ${order.size.toFixed(4)} @ $${order.price.toFixed(4)}`,
       );
 
-      // Track position locally
+      // Track position locally only after confirmed placement
       this.trackPosition(order);
 
       return {
@@ -188,8 +216,9 @@ export class LiveTradingEngine implements TradingEngine {
         filledPrice: order.price,
         paper: false,
       };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+    } catch (err: any) {
+      const apiError = err?.response?.data?.error;
+      const msg = apiError ?? (err instanceof Error ? err.message : String(err));
       logger.error(`Live order failed: ${msg}`);
       return { success: false, error: msg, paper: false };
     }
@@ -353,8 +382,6 @@ export class LiveTradingEngine implements TradingEngine {
         const payout = pos.size * settlementPrice;
         const pnl = payout - cost;
 
-        // In live mode, payout happens on-chain automatically
-        // We only track it locally for monitoring
         this.portfolio.totalPnL += pnl;
         if (isWinner) {
           this.portfolio.settlementWins++;
@@ -369,6 +396,9 @@ export class LiveTradingEngine implements TradingEngine {
         logger.info(
           `SETTLED: ${pos.title} [${pos.outcome}] → ${isWinner ? "WON" : "LOST"} | ${pos.size.toFixed(2)} tokens | Payout: $${payout.toFixed(2)} | P&L: ${sign}$${pnl.toFixed(2)}`,
         );
+
+        // Auto-redeem winning positions on-chain
+        await this.redeemPosition(pos.conditionId, pos.title);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.warn(`Failed to check resolution for ${posKey}: ${msg}`);
@@ -377,6 +407,40 @@ export class LiveTradingEngine implements TradingEngine {
 
     if (changed) this.save();
     return results;
+  }
+
+  private async redeemPosition(conditionId: string, title: string): Promise<void> {
+    if (!this.relayClient) {
+      logger.warn(`Relay client not initialized, skipping auto-redeem for: ${title}`);
+      return;
+    }
+
+    try {
+      const callData = ctfInterface.encodeFunctionData("redeemPositions", [
+        USDC_ADDRESS,
+        PARENT_COLLECTION_ID,
+        conditionId.startsWith("0x") ? conditionId : `0x${conditionId}`,
+        [1, 2],
+      ]);
+
+      const redeemTx = {
+        to: CTF_ADDRESS,
+        data: callData,
+        value: "0",
+      };
+
+      const response = await this.relayClient.execute([redeemTx], "Redeem positions");
+      const result = await response.wait();
+
+      if (result) {
+        logger.info(`REDEEMED: ${title} — tx: ${result.transactionHash}`);
+      } else {
+        logger.warn(`Redeem may have failed for: ${title}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to auto-redeem ${title}: ${msg}`);
+    }
   }
 
   private async fetchMarketData(tokenId: string, conditionId: string): Promise<any | null> {
