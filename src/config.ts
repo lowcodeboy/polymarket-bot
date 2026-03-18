@@ -53,6 +53,9 @@ export const CLOB_API_KEY = optional("CLOB_API_KEY", "");
 export const CLOB_SECRET = optional("CLOB_SECRET", "");
 export const CLOB_PASSPHRASE = optional("CLOB_PASSPHRASE", "");
 
+// Relayer API key (optional — required for auto-redeem of resolved positions)
+export const RELAYER_API_KEY = optional("RELAYER_API_KEY", "");
+
 // Dashboard
 export const DASHBOARD_PORT = parseInt(optional("DASHBOARD_PORT", "3000"), 10);
 

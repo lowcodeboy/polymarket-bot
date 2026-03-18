@@ -24,6 +24,7 @@ import {
   CLOB_API_KEY,
   CLOB_SECRET,
   CLOB_PASSPHRASE,
+  RELAYER_API_KEY,
 } from "./config";
 import logger from "./logger";
 import type {
@@ -151,15 +152,28 @@ export class LiveTradingEngine implements TradingEngine {
       FUNDER_ADDRESS,
     );
 
-    this.relayClient = new RelayClient(
-      RELAYER_URL,
-      CHAIN_ID,
-      wallet,
-      undefined,
-      RelayerTxType.SAFE,
-    );
+    if (RELAYER_API_KEY) {
+      this.relayClient = new RelayClient(
+        RELAYER_URL,
+        CHAIN_ID,
+        wallet,
+        undefined,
+        RelayerTxType.SAFE,
+      );
 
-    logger.info("Live trading engine initialized (with auto-redeem)");
+      // Inject Relayer API Key headers into the SDK's internal HTTP client
+      const httpClient = this.relayClient.httpClient as any;
+      if (httpClient?.instance?.defaults) {
+        httpClient.instance.defaults.headers.common["RELAYER_API_KEY"] = RELAYER_API_KEY;
+        httpClient.instance.defaults.headers.common["RELAYER_API_KEY_ADDRESS"] = wallet.address;
+      }
+
+      logger.info("Auto-redeem enabled (Relayer API Key configured)");
+    } else {
+      logger.info("Auto-redeem disabled (no RELAYER_API_KEY in .env)");
+    }
+
+    logger.info("Live trading engine initialized");
   }
 
   async execute(order: BotOrder): Promise<OrderResult> {
