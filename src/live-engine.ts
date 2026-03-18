@@ -1,5 +1,6 @@
 import fs from "fs";
 import { Wallet } from "@ethersproject/wallet";
+import { JsonRpcProvider } from "@ethersproject/providers";
 import { Interface } from "@ethersproject/abi";
 import axios from "axios";
 import {
@@ -153,10 +154,13 @@ export class LiveTradingEngine implements TradingEngine {
     );
 
     if (RELAYER_API_KEY) {
+      const provider = new JsonRpcProvider(RPC_URL);
+      const connectedWallet = wallet.connect(provider);
+
       this.relayClient = new RelayClient(
         RELAYER_URL,
         CHAIN_ID,
-        wallet,
+        connectedWallet,
         undefined,
         RelayerTxType.SAFE,
       );
