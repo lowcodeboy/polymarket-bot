@@ -77,7 +77,21 @@ export class PositionSizer {
       return null;
     }
 
-    const size = usdcAmount / trade.price;
+    const MIN_ORDER_SIZE = 5;
+    let size = usdcAmount / trade.price;
+
+    // Ensure minimum 5 tokens: add 5 to trades below the minimum to preserve
+    // relative sizing while meeting Polymarket's minimum order requirement
+    if (size < MIN_ORDER_SIZE) {
+      size = MIN_ORDER_SIZE + size;
+      usdcAmount = size * trade.price;
+
+      // Re-check balance after adjustment
+      if (trade.side === "BUY" && usdcAmount > myBalance) {
+        logger.debug(`Skipping trade: adjusted size ${size.toFixed(2)} tokens ($${usdcAmount.toFixed(2)}) exceeds balance $${myBalance.toFixed(2)}`);
+        return null;
+      }
+    }
 
     return {
       tokenId: trade.tokenId,
