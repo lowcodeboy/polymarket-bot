@@ -88,14 +88,12 @@ export class CopyTradingBot {
 
   private async tick(): Promise<void> {
     const trades = await this.tracker.pollNewTrades();
-    let hasNewTrades = false;
 
     for (const trade of trades) {
       if (!trade.transactionHash || this.processed.has(trade.transactionHash)) {
         continue;
       }
 
-      hasNewTrades = true;
       this.addProcessed(trade.transactionHash);
 
       logger.info(
@@ -146,20 +144,18 @@ export class CopyTradingBot {
       }
     }
 
-    if (hasNewTrades) {
-      const settlements = await this.engine.settleResolvedMarkets();
-      for (const s of settlements) {
-        await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
-      }
-      await this.printPnLSnapshot();
+    // Always check settlements and update dashboard, not just when new trades arrive
+    const settlements = await this.engine.settleResolvedMarkets();
+    for (const s of settlements) {
+      await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
     }
+    await this.printPnLSnapshot();
   }
 
   private async printPnLSnapshot(): Promise<void> {
     try {
       const positions = this.engine.getPositions();
       const entries = Object.entries(positions);
-      if (entries.length === 0) return;
 
       const balance = await this.engine.getBalance();
       const realizedPnL = this.engine.getRealizedPnL();
