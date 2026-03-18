@@ -15,6 +15,7 @@ import {
   SIGNATURE_TYPE,
   DATA_API,
   GAMMA_API,
+  RPC_URL,
   CLOB_API_KEY,
   CLOB_SECRET,
   CLOB_PASSPHRASE,
@@ -252,19 +253,31 @@ export class LiveTradingEngine implements TradingEngine {
   }
 
   async getBalance(): Promise<number> {
+    // Query USDC.e balance directly on Polygon via RPC
+    // USDC.e contract: 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
+    // balanceOf(address) selector: 0x70a08231
+    const usdcContract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+    const paddedAddress = FUNDER_ADDRESS.replace("0x", "").padStart(64, "0");
+    const callData = `0x70a08231${paddedAddress}`;
+
     try {
-      const resp = await axios.get(`${DATA_API}/value`, {
-        params: { user: FUNDER_ADDRESS },
-        timeout: HTTP_TIMEOUT,
-      });
-      const data = resp.data;
-      const val = parseFloat(
-        Array.isArray(data) ? data[0]?.value : data?.value ?? data ?? "0",
-      );
-      return isNaN(val) ? 0 : val;
+      const resp = await axios.post(RPC_URL, {
+        jsonrpc: "2.0",
+        method: "eth_call",
+        params: [{ to: usdcContract, data: callData }, "latest"],
+        id: 1,
+      }, { timeout: HTTP_TIMEOUT });
+
+      const hex = resp.data?.result;
+      if (!hex || hex === "0x") return 0;
+
+      // USDC.e has 6 decimals
+      const raw = BigInt(hex);
+      const balance = Number(raw) / 1e6;
+      return balance;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`Failed to get live balance: ${msg}`);
+      logger.warn(`Failed to get USDC balance via RPC: ${msg}`);
       return 0;
     }
   }
