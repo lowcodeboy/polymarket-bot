@@ -15,6 +15,9 @@ import {
   SIGNATURE_TYPE,
   DATA_API,
   GAMMA_API,
+  CLOB_API_KEY,
+  CLOB_SECRET,
+  CLOB_PASSPHRASE,
 } from "./config";
 import logger from "./logger";
 import type {
@@ -99,18 +102,30 @@ export class LiveTradingEngine implements TradingEngine {
     const wallet = new Wallet(PRIVATE_KEY);
     logger.info(`Signer address: ${wallet.address}`);
 
-    // Derive API credentials via standard Polymarket flow
-    const tempClient = new ClobClient(
-      CLOB_HOST,
-      CHAIN_ID,
-      wallet,
-      undefined,
-      toSignatureType(SIGNATURE_TYPE),
-      FUNDER_ADDRESS,
-    );
+    let creds: ApiKeyCreds;
 
-    const creds: ApiKeyCreds = await tempClient.createOrDeriveApiKey();
-    logger.info("API credentials derived successfully");
+    if (CLOB_API_KEY && CLOB_SECRET && CLOB_PASSPHRASE) {
+      // Use pre-configured API credentials from .env
+      creds = {
+        key: CLOB_API_KEY,
+        secret: CLOB_SECRET,
+        passphrase: CLOB_PASSPHRASE,
+      };
+      logger.info("Using pre-configured API credentials");
+    } else {
+      // Derive API credentials via standard Polymarket flow
+      const tempClient = new ClobClient(
+        CLOB_HOST,
+        CHAIN_ID,
+        wallet,
+        undefined,
+        toSignatureType(SIGNATURE_TYPE),
+        FUNDER_ADDRESS,
+      );
+
+      creds = await tempClient.createOrDeriveApiKey();
+      logger.info("API credentials derived successfully");
+    }
 
     this.client = new ClobClient(
       CLOB_HOST,

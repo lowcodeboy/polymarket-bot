@@ -48,6 +48,11 @@ export const FUNDER_ADDRESS = PAPER_TRADING ? "" : required("FUNDER_ADDRESS");
 export const RPC_URL = PAPER_TRADING ? "" : required("RPC_URL");
 export const SIGNATURE_TYPE = parseInt(optional("SIGNATURE_TYPE", "0"), 10);
 
+// CLOB API credentials (optional — if provided, skip createOrDeriveApiKey)
+export const CLOB_API_KEY = optional("CLOB_API_KEY", "");
+export const CLOB_SECRET = optional("CLOB_SECRET", "");
+export const CLOB_PASSPHRASE = optional("CLOB_PASSPHRASE", "");
+
 // Dashboard
 export const DASHBOARD_PORT = parseInt(optional("DASHBOARD_PORT", "3000"), 10);
 
