@@ -1,10 +1,12 @@
 import axios from "axios";
-import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_MILESTONE_STEP, PAPER_BALANCE } from "./config";
+import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_MILESTONE_STEP, PAPER_BALANCE, PAPER_TRADING } from "./config";
 import logger from "./logger";
 
 const API_URL = TELEGRAM_BOT_TOKEN
   ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
   : "";
+
+const MODE_TAG = PAPER_TRADING ? "[PAPER]" : "[LIVE]";
 
 export class TelegramNotifier {
   private enabled: boolean;
@@ -41,18 +43,19 @@ export class TelegramNotifier {
   }
 
   async notifyStartup(): Promise<void> {
-    await this.send("🤖 <b>Bot Started</b>\nPolymarket Copy Bot is now running.");
+    await this.send(`🤖 <b>${MODE_TAG} Bot Started</b>\nPolymarket Copy Bot is now running.`);
   }
 
   async notifyShutdown(): Promise<void> {
-    await this.send("🛑 <b>Bot Stopped</b>\nPolymarket Copy Bot has shut down.");
+    await this.send(`🛑 <b>${MODE_TAG} Bot Stopped</b>\nPolymarket Copy Bot has shut down.`);
   }
 
   async notifySettlement(title: string, outcome: string, won: boolean, tokens: number, payout: number, pnl: number): Promise<void> {
+    if (PAPER_TRADING) return; // Only send settlement alerts in live mode
     const icon = won ? "✅" : "❌";
     const sign = pnl >= 0 ? "+" : "";
     await this.send(
-      `${icon} <b>SETTLED</b>: ${title} [${outcome}]\n` +
+      `${icon} <b>${MODE_TAG} SETTLED</b>: ${title} [${outcome}]\n` +
       `Result: ${won ? "WON" : "LOST"} | ${tokens.toFixed(2)} tokens\n` +
       `Payout: $${payout.toFixed(2)} | P&L: ${sign}$${pnl.toFixed(2)}`
     );
@@ -86,7 +89,7 @@ export class TelegramNotifier {
     const winTotal = wins + losses;
     const winRateText = winTotal > 0 ? `${winRate.toFixed(0)}% (${wins}W/${losses}L)` : "N/A";
 
-    let msg = `📊 <b>P&L Snapshot</b>\n`;
+    let msg = `📊 <b>${MODE_TAG} P&L Snapshot</b>\n`;
     msg += `Cash: $${cash.toFixed(2)}\n`;
     msg += `Realized P&L: ${realizedSign}$${realizedPnL.toFixed(2)}\n`;
     msg += `Win Rate: ${winRateText}\n`;
@@ -111,7 +114,7 @@ export class TelegramNotifier {
   }
 
   async notifyError(error: string): Promise<void> {
-    await this.send(`⚠️ <b>Bot Error</b>\n${error}`);
+    await this.send(`⚠️ <b>${MODE_TAG} Bot Error</b>\n${error}`);
   }
 
   private async checkMilestone(overallPnL: number): Promise<void> {
@@ -119,7 +122,7 @@ export class TelegramNotifier {
     if (currentMilestone > this.lastMilestone && currentMilestone > 0) {
       this.lastMilestone = currentMilestone;
       await this.send(
-        `🎯 <b>Milestone Reached!</b>\n` +
+        `🎯 <b>${MODE_TAG} Milestone Reached!</b>\n` +
         `Portfolio is now +$${currentMilestone.toFixed(0)} above starting balance!`
       );
     }
@@ -127,7 +130,7 @@ export class TelegramNotifier {
     if (overallPnL < 0 && this.lastMilestone >= 0) {
       this.lastMilestone = -1;
       await this.send(
-        `🔴 <b>Warning!</b>\nPortfolio has dropped below starting balance ($${PAPER_BALANCE})`
+        `🔴 <b>${MODE_TAG} Warning!</b>\nPortfolio has dropped below starting balance ($${PAPER_BALANCE})`
       );
     }
   }
@@ -141,7 +144,7 @@ export class TelegramNotifier {
         const total = wins + losses;
         const rate = total > 0 ? ((wins / total) * 100).toFixed(0) : "N/A";
         await this.send(
-          `📅 <b>Daily Summary</b>\n` +
+          `📅 <b>${MODE_TAG} Daily Summary</b>\n` +
           `Settlements today: ${total} (${wins}W/${losses}L)\n` +
           `Win Rate: ${rate}%\n` +
           `Total trades: ${trades}`
@@ -158,7 +161,7 @@ export class TelegramNotifier {
       const elapsed = Date.now() - this.lastTradeTime;
       if (elapsed > 30 * 60 * 1000) {
         await this.send(
-          `💤 <b>Inactivity Alert</b>\nNo trades detected in the last 30 minutes. Trader might be inactive.`
+          `💤 <b>${MODE_TAG} Inactivity Alert</b>\nNo trades detected in the last 30 minutes. Trader might be inactive.`
         );
         // Reset to avoid spamming — next alert in 30 more minutes
         this.lastTradeTime = Date.now();
