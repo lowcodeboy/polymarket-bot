@@ -12,19 +12,8 @@ import type { StatsPosition } from "./stats";
 
 const MAX_PROCESSED = 10_000;
 const PROCESSED_FILE = "processed_hashes.json";
-const BUFFER_WINDOW_MS = 10_000; // 10 seconds buffer to aggregate fills
-const BUFFER_POLL_MS = 1_000; // poll every 1 second when buffering
+const POLL_MS = POLL_INTERVAL * 1000;
 const SNAPSHOT_INTERVAL_MS = 30_000; // P&L snapshot every 30 seconds
-
-interface BufferedFill {
-  trade: DetectedTrade;
-  receivedAt: number;
-}
-
-interface FillGroup {
-  fills: BufferedFill[];
-  lastFillAt: number;
-}
 
 export class CopyTradingBot {
   private tracker: TraderTracker;
@@ -37,7 +26,6 @@ export class CopyTradingBot {
   private statsCollector: StatsCollector;
   private telegram: TelegramNotifier;
   private skippedMinSize: Array<{ title: string; outcome: string; side: string; calculatedSize: number; price: number; timestamp: string }> = [];
-  private fillBuffer: Map<string, FillGroup> = new Map();
   private lastSnapshotAt = 0;
 
   constructor() {
@@ -91,96 +79,46 @@ export class CopyTradingBot {
   private async loop(): Promise<void> {
     while (this.running) {
       try {
-        await this.collectFills();
-        const matureTrades = this.releaseMatureFills();
-        if (matureTrades.length > 0) {
-          await this.processTrades(matureTrades);
-        }
-        // Always check settlements
-        const settlements = await this.engine.settleResolvedMarkets();
-        for (const s of settlements) {
-          await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
-        }
-        // Snapshot every 30 seconds, not every tick
-        const now = Date.now();
-        if (now - this.lastSnapshotAt >= SNAPSHOT_INTERVAL_MS) {
-          await this.printPnLSnapshot();
-          this.lastSnapshotAt = now;
-        }
+        await this.tick();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error(`Tick error: ${msg}`);
       }
 
       if (!this.running) break;
-      await this.sleep(BUFFER_POLL_MS);
+      await this.sleep(POLL_MS);
     }
   }
 
-  private async collectFills(): Promise<void> {
+  private async tick(): Promise<void> {
+    // Poll and process trades immediately (no buffer — /trades API pre-aggregates fills)
     const rawTrades = await this.tracker.pollNewTrades();
-    const now = Date.now();
+    const newTrades: DetectedTrade[] = [];
 
     for (const trade of rawTrades) {
       if (!trade.transactionHash || this.processed.has(trade.transactionHash)) {
         continue;
       }
       this.addProcessed(trade.transactionHash);
-
-      const key = `${trade.wallet}:${trade.conditionId}:${trade.outcome}:${trade.side}`;
-      const group = this.fillBuffer.get(key);
-
-      if (group) {
-        group.fills.push({ trade, receivedAt: now });
-        group.lastFillAt = now;
-      } else {
-        this.fillBuffer.set(key, {
-          fills: [{ trade, receivedAt: now }],
-          lastFillAt: now,
-        });
-      }
-
-      logger.debug(
-        `Buffered fill: ${trade.side} ${trade.size.toFixed(4)} @ $${trade.price.toFixed(4)} | ${trade.title} [${trade.outcome}]`,
-      );
+      newTrades.push(trade);
     }
-  }
 
-  private releaseMatureFills(): DetectedTrade[] {
+    if (newTrades.length > 0) {
+      await this.processTrades(newTrades);
+    }
+
+    // Check settlements
+    const settlements = await this.engine.settleResolvedMarkets();
+    for (const s of settlements) {
+      await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
+    }
+
+    // Snapshot every 30 seconds
     const now = Date.now();
-    const maturedTrades: DetectedTrade[] = [];
-
-    for (const [key, group] of this.fillBuffer.entries()) {
-      if (now - group.lastFillAt >= BUFFER_WINDOW_MS) {
-        // Buffer window expired — aggregate and release
-        const fills = group.fills.map(f => f.trade);
-
-        if (fills.length === 1) {
-          maturedTrades.push(fills[0]);
-        } else {
-          const totalSize = fills.reduce((sum, f) => sum + f.size, 0);
-          const totalUsdc = fills.reduce((sum, f) => sum + f.usdcSize, 0);
-          const avgPrice = totalSize > 0 ? totalUsdc / totalSize : fills[0].price;
-
-          const merged: DetectedTrade = {
-            ...fills[0],
-            size: totalSize,
-            price: avgPrice,
-            usdcSize: totalUsdc,
-          };
-
-          logger.info(
-            `Aggregated ${fills.length} fills (${(BUFFER_WINDOW_MS / 1000)}s window) → ${merged.side} ${totalSize.toFixed(4)} tokens @ $${avgPrice.toFixed(4)} ($${totalUsdc.toFixed(2)}) | ${merged.title} [${merged.outcome}]`,
-          );
-
-          maturedTrades.push(merged);
-        }
-
-        this.fillBuffer.delete(key);
-      }
+    if (now - this.lastSnapshotAt >= SNAPSHOT_INTERVAL_MS) {
+      await this.printPnLSnapshot();
+      this.lastSnapshotAt = now;
     }
-
-    return maturedTrades;
   }
 
   private async processTrades(trades: DetectedTrade[]): Promise<void> {
@@ -217,20 +155,17 @@ export class CopyTradingBot {
           continue;
         }
 
-        // Check current price and slippage
+        // Get current price for execution (no slippage gate — execute at market)
         const currentPrice = await this.tracker.getTokenPrice(
           trade.tokenId,
           trade.side,
         );
 
         if (currentPrice !== null) {
-          if (!this.sizer.isWithinSlippage(order.price, currentPrice)) {
-            logger.warn(
-              `Slippage too high: order $${order.price.toFixed(4)} vs current $${currentPrice.toFixed(4)} — skipping`,
-            );
-            continue;
-          }
-          // Use current price for better execution
+          const slippagePct = Math.abs(order.price - currentPrice) / order.price * 100;
+          logger.info(
+            `Price: trader $${order.price.toFixed(4)} → current $${currentPrice.toFixed(4)} (${slippagePct.toFixed(1)}% diff)`,
+          );
           order.price = currentPrice;
           order.size = order.usdcAmount / currentPrice;
         }
@@ -268,7 +203,7 @@ export class CopyTradingBot {
 
       logger.info("--- P&L SNAPSHOT ---");
 
-      for (const [key, pos] of entries) {
+      for (const [, pos] of entries) {
         const currentPrice = await this.tracker.getTokenPrice(pos.tokenId, "BUY");
         const invested = pos.size * pos.avgPrice;
 
