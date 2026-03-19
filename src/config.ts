@@ -37,7 +37,7 @@ export const TRADE_MULTIPLIER = parseFloat(
 export const MAX_POSITION_PCT = parseFloat(
   optional("MAX_POSITION_PCT", "0.10"),
 );
-export const MAX_SLIPPAGE = parseFloat(optional("MAX_SLIPPAGE", "0.02"));
+export const MAX_SLIPPAGE = parseFloat(optional("MAX_SLIPPAGE", "0.15"));
 export const MAX_MARKET_EXPOSURE = parseFloat(optional("MAX_MARKET_EXPOSURE", "0.30"));
 export const POLL_INTERVAL = parseInt(optional("POLL_INTERVAL", "5"), 10);
 export const LOG_LEVEL = optional("LOG_LEVEL", "info");

@@ -14,6 +14,7 @@ const MAX_PROCESSED = 10_000;
 const PROCESSED_FILE = "processed_hashes.json";
 const BUFFER_WINDOW_MS = 10_000; // 10 seconds buffer to aggregate fills
 const BUFFER_POLL_MS = 1_000; // poll every 1 second when buffering
+const SNAPSHOT_INTERVAL_MS = 30_000; // P&L snapshot every 30 seconds
 
 interface BufferedFill {
   trade: DetectedTrade;
@@ -37,6 +38,7 @@ export class CopyTradingBot {
   private telegram: TelegramNotifier;
   private skippedMinSize: Array<{ title: string; outcome: string; side: string; calculatedSize: number; price: number; timestamp: string }> = [];
   private fillBuffer: Map<string, FillGroup> = new Map();
+  private lastSnapshotAt = 0;
 
   constructor() {
     this.tracker = new TraderTracker(TRACKED_WALLETS);
@@ -94,12 +96,17 @@ export class CopyTradingBot {
         if (matureTrades.length > 0) {
           await this.processTrades(matureTrades);
         }
-        // Always check settlements and update dashboard
+        // Always check settlements
         const settlements = await this.engine.settleResolvedMarkets();
         for (const s of settlements) {
           await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
         }
-        await this.printPnLSnapshot();
+        // Snapshot every 30 seconds, not every tick
+        const now = Date.now();
+        if (now - this.lastSnapshotAt >= SNAPSHOT_INTERVAL_MS) {
+          await this.printPnLSnapshot();
+          this.lastSnapshotAt = now;
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error(`Tick error: ${msg}`);
