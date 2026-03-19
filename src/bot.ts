@@ -12,6 +12,18 @@ import type { StatsPosition } from "./stats";
 
 const MAX_PROCESSED = 10_000;
 const PROCESSED_FILE = "processed_hashes.json";
+const BUFFER_WINDOW_MS = 10_000; // 10 seconds buffer to aggregate fills
+const BUFFER_POLL_MS = 1_000; // poll every 1 second when buffering
+
+interface BufferedFill {
+  trade: DetectedTrade;
+  receivedAt: number;
+}
+
+interface FillGroup {
+  fills: BufferedFill[];
+  lastFillAt: number;
+}
 
 export class CopyTradingBot {
   private tracker: TraderTracker;
@@ -23,7 +35,8 @@ export class CopyTradingBot {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private statsCollector: StatsCollector;
   private telegram: TelegramNotifier;
-  private skippedMinSize: Array<{ title: string; outcome: string; side: string; calculatedSize: number; price: number; timestamp: string; minRequired?: number }> = [];
+  private skippedMinSize: Array<{ title: string; outcome: string; side: string; calculatedSize: number; price: number; timestamp: string }> = [];
+  private fillBuffer: Map<string, FillGroup> = new Map();
 
   constructor() {
     this.tracker = new TraderTracker(TRACKED_WALLETS);
@@ -76,77 +89,94 @@ export class CopyTradingBot {
   private async loop(): Promise<void> {
     while (this.running) {
       try {
-        await this.tick();
+        await this.collectFills();
+        const matureTrades = this.releaseMatureFills();
+        if (matureTrades.length > 0) {
+          await this.processTrades(matureTrades);
+        }
+        // Always check settlements and update dashboard
+        const settlements = await this.engine.settleResolvedMarkets();
+        for (const s of settlements) {
+          await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
+        }
+        await this.printPnLSnapshot();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error(`Tick error: ${msg}`);
       }
 
       if (!this.running) break;
-      await this.sleep(POLL_INTERVAL * 1000);
+      await this.sleep(BUFFER_POLL_MS);
     }
   }
 
-  private aggregateFills(trades: DetectedTrade[]): DetectedTrade[] {
-    const groups = new Map<string, DetectedTrade[]>();
-
-    for (const trade of trades) {
-      // Group by wallet + market + outcome + side
-      const key = `${trade.wallet}:${trade.conditionId}:${trade.outcome}:${trade.side}`;
-      const group = groups.get(key);
-      if (group) {
-        group.push(trade);
-      } else {
-        groups.set(key, [trade]);
-      }
-    }
-
-    const aggregated: DetectedTrade[] = [];
-
-    for (const fills of groups.values()) {
-      if (fills.length === 1) {
-        aggregated.push(fills[0]);
-        continue;
-      }
-
-      // Merge fills into one combined trade
-      const totalSize = fills.reduce((sum, f) => sum + f.size, 0);
-      const totalUsdc = fills.reduce((sum, f) => sum + f.usdcSize, 0);
-      const avgPrice = totalSize > 0 ? totalUsdc / totalSize : fills[0].price;
-
-      const merged: DetectedTrade = {
-        ...fills[0],
-        size: totalSize,
-        price: avgPrice,
-        usdcSize: totalUsdc,
-      };
-
-      logger.info(
-        `Aggregated ${fills.length} fills → ${merged.side} ${totalSize.toFixed(4)} tokens @ $${avgPrice.toFixed(4)} ($${totalUsdc.toFixed(2)}) | ${merged.title} [${merged.outcome}]`,
-      );
-
-      aggregated.push(merged);
-    }
-
-    return aggregated;
-  }
-
-  private async tick(): Promise<void> {
+  private async collectFills(): Promise<void> {
     const rawTrades = await this.tracker.pollNewTrades();
+    const now = Date.now();
 
-    // Filter out already-processed trades and mark all as processed
-    const newTrades: DetectedTrade[] = [];
     for (const trade of rawTrades) {
       if (!trade.transactionHash || this.processed.has(trade.transactionHash)) {
         continue;
       }
       this.addProcessed(trade.transactionHash);
-      newTrades.push(trade);
+
+      const key = `${trade.wallet}:${trade.conditionId}:${trade.outcome}:${trade.side}`;
+      const group = this.fillBuffer.get(key);
+
+      if (group) {
+        group.fills.push({ trade, receivedAt: now });
+        group.lastFillAt = now;
+      } else {
+        this.fillBuffer.set(key, {
+          fills: [{ trade, receivedAt: now }],
+          lastFillAt: now,
+        });
+      }
+
+      logger.debug(
+        `Buffered fill: ${trade.side} ${trade.size.toFixed(4)} @ $${trade.price.toFixed(4)} | ${trade.title} [${trade.outcome}]`,
+      );
+    }
+  }
+
+  private releaseMatureFills(): DetectedTrade[] {
+    const now = Date.now();
+    const maturedTrades: DetectedTrade[] = [];
+
+    for (const [key, group] of this.fillBuffer.entries()) {
+      if (now - group.lastFillAt >= BUFFER_WINDOW_MS) {
+        // Buffer window expired — aggregate and release
+        const fills = group.fills.map(f => f.trade);
+
+        if (fills.length === 1) {
+          maturedTrades.push(fills[0]);
+        } else {
+          const totalSize = fills.reduce((sum, f) => sum + f.size, 0);
+          const totalUsdc = fills.reduce((sum, f) => sum + f.usdcSize, 0);
+          const avgPrice = totalSize > 0 ? totalUsdc / totalSize : fills[0].price;
+
+          const merged: DetectedTrade = {
+            ...fills[0],
+            size: totalSize,
+            price: avgPrice,
+            usdcSize: totalUsdc,
+          };
+
+          logger.info(
+            `Aggregated ${fills.length} fills (${(BUFFER_WINDOW_MS / 1000)}s window) → ${merged.side} ${totalSize.toFixed(4)} tokens @ $${avgPrice.toFixed(4)} ($${totalUsdc.toFixed(2)}) | ${merged.title} [${merged.outcome}]`,
+          );
+
+          maturedTrades.push(merged);
+        }
+
+        this.fillBuffer.delete(key);
+      }
     }
 
-    // Aggregate partial fills into combined trades
-    const trades = this.aggregateFills(newTrades);
+    return maturedTrades;
+  }
 
+  private async processTrades(trades: DetectedTrade[]): Promise<void> {
     for (const trade of trades) {
       logger.info(
         `Detected: ${trade.wallet.slice(0, 8)}... ${trade.side} ${trade.size.toFixed(4)} @ $${trade.price.toFixed(4)} | ${trade.title} [${trade.outcome}]`,
@@ -164,11 +194,10 @@ export class CopyTradingBot {
           continue;
         }
 
-        // Check minimum token size (per-market Polymarket requirement)
-        const minOrderSize = await this.tracker.getMinOrderSize(trade.tokenId);
-        if (order.size < minOrderSize) {
+        // Check minimum 5 token size (Polymarket requirement)
+        if (order.size < 5) {
           logger.warn(
-            `Min token size: ${order.size.toFixed(2)} tokens < ${minOrderSize} minimum — skipping | ${order.side} @ $${order.price.toFixed(4)} | ${order.title} [${order.outcome}]`,
+            `Min token size: ${order.size.toFixed(2)} tokens < 5 minimum — skipping | ${order.side} @ $${order.price.toFixed(4)} | ${order.title} [${order.outcome}]`,
           );
           this.skippedMinSize.push({
             title: order.title,
@@ -177,7 +206,6 @@ export class CopyTradingBot {
             calculatedSize: order.size,
             price: order.price,
             timestamp: new Date().toISOString(),
-            minRequired: minOrderSize,
           });
           continue;
         }
@@ -214,13 +242,6 @@ export class CopyTradingBot {
         logger.error(`Error processing trade ${trade.transactionHash}: ${msg}`);
       }
     }
-
-    // Always check settlements and update dashboard, not just when new trades arrive
-    const settlements = await this.engine.settleResolvedMarkets();
-    for (const s of settlements) {
-      await this.telegram.notifySettlement(s.title, s.outcome, s.won, s.tokens, s.payout, s.pnl);
-    }
-    await this.printPnLSnapshot();
   }
 
   private async printPnLSnapshot(): Promise<void> {

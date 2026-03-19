@@ -304,12 +304,11 @@ function renderWithStats(stats) {
   // Skipped trades section (min 5 token size)
   const skipped = dayData.skippedMinSize || [];
   if (skipped.length > 0) {
-    html += '<div class="positions" style="margin-top: 16px;"><h3>Skipped Trades (Below Min Token Size) — ' + skipped.length + ' total</h3><table><tr><th>Time</th><th>Side</th><th>Market</th><th>Calculated / Min</th><th>Price</th><th>Would Cost</th></tr>';
+    html += '<div class="positions" style="margin-top: 16px;"><h3>Skipped Trades (Below 5 Token Minimum) — ' + skipped.length + ' total</h3><table><tr><th>Time</th><th>Side</th><th>Market</th><th>Calculated Size</th><th>Price</th><th>Would Cost</th></tr>';
     for (const s of skipped.slice(-50).reverse()) {
       const time = new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const cost = (s.calculatedSize * s.price).toFixed(2);
-      const min = s.minRequired ? s.minRequired.toFixed(2) : '5.00';
-      html += '<tr><td>' + time + '</td><td>' + s.side + '</td><td>' + s.title + ' [' + s.outcome + ']</td><td class="red">' + s.calculatedSize.toFixed(2) + ' / ' + min + '</td><td>$' + s.price.toFixed(4) + '</td><td>$' + cost + '</td></tr>';
+      html += '<tr><td>' + time + '</td><td>' + s.side + '</td><td>' + s.title + ' [' + s.outcome + ']</td><td class="red">' + s.calculatedSize.toFixed(2) + ' / 5.00</td><td>$' + s.price.toFixed(4) + '</td><td>$' + cost + '</td></tr>';
     }
     html += '</table></div>';
   }
