@@ -133,26 +133,35 @@ export class CopyTradingBot {
         logger.info(`Sizer inputs: myBalance=$${balance.toFixed(2)} | traderValue=$${traderValue.toFixed(2)} | tradeUSDC=$${trade.usdcSize.toFixed(2)} | traderTokens=${trade.size.toFixed(2)} | traderPrice=$${trade.price.toFixed(4)}`);
         const positions = this.engine.getPositions();
 
-        const order = this.sizer.calculate(trade, balance, traderValue, positions);
+        let order = this.sizer.calculate(trade, balance, traderValue, positions);
         if (!order) {
           logger.debug("Order skipped by sizer");
           continue;
         }
 
-        // Check minimum 5 token size (Polymarket requirement)
+        // If sized order is below 5 tokens, fallback to trader's exact size
         if (order.size < 5) {
-          logger.warn(
-            `Min token size: ${order.size.toFixed(2)} tokens < 5 minimum — skipping | ${order.side} @ $${order.price.toFixed(4)} | ${order.title} [${order.outcome}]`,
+          const exactUsdc = trade.size * trade.price;
+          if (trade.side === "BUY" && exactUsdc > balance) {
+            logger.warn(
+              `Min token fallback: need $${exactUsdc.toFixed(2)} but only $${balance.toFixed(2)} — skipping | ${order.title} [${order.outcome}]`,
+            );
+            this.skippedMinSize.push({
+              title: order.title,
+              outcome: order.outcome,
+              side: order.side,
+              calculatedSize: order.size,
+              price: order.price,
+              timestamp: new Date().toISOString(),
+            });
+            continue;
+          }
+          logger.info(
+            `Min token fallback: sizer gave ${order.size.toFixed(2)} tokens < 5 — using trader's exact size: ${trade.size.toFixed(2)} tokens @ $${trade.price.toFixed(4)} ($${exactUsdc.toFixed(2)})`,
           );
-          this.skippedMinSize.push({
-            title: order.title,
-            outcome: order.outcome,
-            side: order.side,
-            calculatedSize: order.size,
-            price: order.price,
-            timestamp: new Date().toISOString(),
-          });
-          continue;
+          order.size = trade.size;
+          order.price = trade.price;
+          order.usdcAmount = exactUsdc;
         }
 
         // Get current price for execution (no slippage gate — execute at market)
