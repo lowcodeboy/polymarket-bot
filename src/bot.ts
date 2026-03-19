@@ -7,7 +7,7 @@ import { PaperTradingEngine } from "./paper-engine";
 import { LiveTradingEngine } from "./live-engine";
 import { StatsCollector } from "./stats";
 import { TelegramNotifier } from "./telegram";
-import type { TradingEngine } from "./types";
+import type { TradingEngine, DetectedTrade } from "./types";
 import type { StatsPosition } from "./stats";
 
 const MAX_PROCESSED = 10_000;
@@ -87,16 +87,67 @@ export class CopyTradingBot {
     }
   }
 
-  private async tick(): Promise<void> {
-    const trades = await this.tracker.pollNewTrades();
+  private aggregateFills(trades: DetectedTrade[]): DetectedTrade[] {
+    const groups = new Map<string, DetectedTrade[]>();
 
     for (const trade of trades) {
-      if (!trade.transactionHash || this.processed.has(trade.transactionHash)) {
+      // Group by wallet + market + outcome + side
+      const key = `${trade.wallet}:${trade.conditionId}:${trade.outcome}:${trade.side}`;
+      const group = groups.get(key);
+      if (group) {
+        group.push(trade);
+      } else {
+        groups.set(key, [trade]);
+      }
+    }
+
+    const aggregated: DetectedTrade[] = [];
+
+    for (const fills of groups.values()) {
+      if (fills.length === 1) {
+        aggregated.push(fills[0]);
         continue;
       }
 
-      this.addProcessed(trade.transactionHash);
+      // Merge fills into one combined trade
+      const totalSize = fills.reduce((sum, f) => sum + f.size, 0);
+      const totalUsdc = fills.reduce((sum, f) => sum + f.usdcSize, 0);
+      const avgPrice = totalSize > 0 ? totalUsdc / totalSize : fills[0].price;
 
+      const merged: DetectedTrade = {
+        ...fills[0],
+        size: totalSize,
+        price: avgPrice,
+        usdcSize: totalUsdc,
+      };
+
+      logger.info(
+        `Aggregated ${fills.length} fills → ${merged.side} ${totalSize.toFixed(4)} tokens @ $${avgPrice.toFixed(4)} ($${totalUsdc.toFixed(2)}) | ${merged.title} [${merged.outcome}]`,
+      );
+
+      aggregated.push(merged);
+    }
+
+    return aggregated;
+  }
+
+  private async tick(): Promise<void> {
+    const rawTrades = await this.tracker.pollNewTrades();
+
+    // Filter out already-processed trades and mark all as processed
+    const newTrades: DetectedTrade[] = [];
+    for (const trade of rawTrades) {
+      if (!trade.transactionHash || this.processed.has(trade.transactionHash)) {
+        continue;
+      }
+      this.addProcessed(trade.transactionHash);
+      newTrades.push(trade);
+    }
+
+    // Aggregate partial fills into combined trades
+    const trades = this.aggregateFills(newTrades);
+
+    for (const trade of trades) {
       logger.info(
         `Detected: ${trade.wallet.slice(0, 8)}... ${trade.side} ${trade.size.toFixed(4)} @ $${trade.price.toFixed(4)} | ${trade.title} [${trade.outcome}]`,
       );
