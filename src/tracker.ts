@@ -162,6 +162,21 @@ export class TraderTracker {
     }
   }
 
+  async getMinOrderSize(tokenId: string): Promise<number> {
+    try {
+      const resp = await axios.get(`${CLOB_HOST}/book`, {
+        params: { token_id: tokenId },
+        timeout: HTTP_TIMEOUT,
+      });
+      const minSize = parseFloat(resp.data?.min_order_size ?? "5");
+      return isNaN(minSize) ? 5 : minSize;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to get min order size for ${tokenId}: ${msg}`);
+      return 5; // fallback to 5
+    }
+  }
+
   async getTokenPrice(tokenId: string, side: string): Promise<number | null> {
     try {
       const resp = await axios.get(`${CLOB_HOST}/price`, {

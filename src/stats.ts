@@ -10,6 +10,7 @@ export interface SkippedTrade {
   calculatedSize: number;
   price: number;
   timestamp: string;
+  minRequired?: number;
 }
 
 export interface StatsSnapshot {
