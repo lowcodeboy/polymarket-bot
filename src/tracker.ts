@@ -59,13 +59,14 @@ export class TraderTracker {
   }
 
   private async fetchRecentActivity(wallet: string): Promise<DetectedTrade[]> {
-    const url = `${DATA_API}/trades`;
+    const url = `${DATA_API}/activity`;
+    const lastSeenMs = this.lastSeen.get(wallet) ?? Date.now();
     const resp = await axios.get(url, {
       params: {
         user: wallet,
+        type: "TRADE",
         limit: 50,
-        sortBy: "TIMESTAMP",
-        sortDirection: "DESC",
+        start: Math.floor(lastSeenMs / 1000),
       },
       timeout: HTTP_TIMEOUT,
     });
@@ -74,7 +75,6 @@ export class TraderTracker {
     const activities: any[] = resp.data;
     if (!Array.isArray(activities)) return [];
 
-    const lastSeenMs = this.lastSeen.get(wallet) ?? Date.now();
     const newTrades: DetectedTrade[] = [];
     let maxMs = lastSeenMs;
 
