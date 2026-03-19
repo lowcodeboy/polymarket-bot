@@ -104,6 +104,7 @@ export class CopyTradingBot {
       try {
         const balance = await this.engine.getBalance();
         const traderValue = await this.tracker.getPortfolioValue(trade.wallet);
+        logger.info(`Sizer inputs: myBalance=$${balance.toFixed(2)} | traderValue=$${traderValue.toFixed(2)} | tradeUSDC=$${trade.usdcSize.toFixed(2)}`);
         const positions = this.engine.getPositions();
 
         const order = this.sizer.calculate(trade, balance, traderValue, positions);
