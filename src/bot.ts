@@ -161,13 +161,23 @@ export class CopyTradingBot {
           trade.side,
         );
 
-        if (currentPrice !== null) {
-          const slippagePct = Math.abs(order.price - currentPrice) / order.price * 100;
-          logger.info(
-            `Price: trader $${order.price.toFixed(4)} → current $${currentPrice.toFixed(4)} (${slippagePct.toFixed(1)}% diff)`,
-          );
-          order.price = currentPrice;
-          order.size = order.usdcAmount / currentPrice;
+        // Skip if market is dead (price 0 or unavailable = expired/resolved)
+        if (currentPrice === null || currentPrice <= 0) {
+          logger.warn(`Market price unavailable (${currentPrice}) — market likely expired, skipping | ${order.title} [${order.outcome}]`);
+          continue;
+        }
+
+        const slippagePct = Math.abs(order.price - currentPrice) / order.price * 100;
+        logger.info(
+          `Price: trader $${order.price.toFixed(4)} → current $${currentPrice.toFixed(4)} (${slippagePct.toFixed(1)}% diff)`,
+        );
+        order.price = currentPrice;
+        order.size = order.usdcAmount / currentPrice;
+
+        // Guard against NaN/Infinity from division
+        if (!isFinite(order.size) || order.size <= 0 || !isFinite(order.usdcAmount)) {
+          logger.warn(`Invalid order values: size=${order.size}, usdc=${order.usdcAmount} — skipping`);
+          continue;
         }
 
         const result = await this.engine.execute(order);

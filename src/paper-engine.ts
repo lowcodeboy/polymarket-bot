@@ -32,16 +32,30 @@ export class PaperTradingEngine implements TradingEngine {
       if (fs.existsSync(PORTFOLIO_FILE)) {
         const raw = fs.readFileSync(PORTFOLIO_FILE, "utf-8");
         const data = JSON.parse(raw) as PaperPortfolio;
-        // Ensure all fields exist
-        return {
-          balance: data.balance ?? PAPER_BALANCE,
-          positions: data.positions ?? {},
-          totalTrades: data.totalTrades ?? 0,
-          totalPnL: data.totalPnL ?? 0,
-          settlementWins: data.settlementWins ?? 0,
-          settlementLosses: data.settlementLosses ?? 0,
-          tradeHistory: data.tradeHistory ?? [],
-        };
+        const balance = data.balance ?? PAPER_BALANCE;
+        // If balance is corrupted (NaN/Infinity), start fresh
+        if (!isFinite(balance)) {
+          logger.warn(`Corrupted paper portfolio (balance=${balance}), starting fresh`);
+        } else {
+          // Filter out positions with NaN/Infinity values
+          const cleanPositions: Record<string, any> = {};
+          for (const [key, pos] of Object.entries(data.positions ?? {})) {
+            if (isFinite(pos.size) && isFinite(pos.avgPrice) && pos.size > 0) {
+              cleanPositions[key] = pos;
+            } else {
+              logger.warn(`Removing corrupted position: ${key} (size=${pos.size}, avgPrice=${pos.avgPrice})`);
+            }
+          }
+          return {
+            balance,
+            positions: cleanPositions,
+            totalTrades: data.totalTrades ?? 0,
+            totalPnL: isFinite(data.totalPnL ?? 0) ? (data.totalPnL ?? 0) : 0,
+            settlementWins: data.settlementWins ?? 0,
+            settlementLosses: data.settlementLosses ?? 0,
+            tradeHistory: data.tradeHistory ?? [],
+          };
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
