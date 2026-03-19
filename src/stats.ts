@@ -3,6 +3,15 @@ import fs from "fs";
 const STATS_FILE = "dashboard_stats.json";
 const MAX_HISTORY = 20000; // ~7 days of data
 
+export interface SkippedTrade {
+  title: string;
+  outcome: string;
+  side: string;
+  calculatedSize: number;
+  price: number;
+  timestamp: string;
+}
+
 export interface StatsSnapshot {
   timestamp: string;
   cash: number;
@@ -17,6 +26,7 @@ export interface StatsSnapshot {
   losses: number;
   winRate: number;
   positions: StatsPosition[];
+  skippedMinSize?: SkippedTrade[];
 }
 
 export interface StatsPosition {

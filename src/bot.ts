@@ -23,6 +23,7 @@ export class CopyTradingBot {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private statsCollector: StatsCollector;
   private telegram: TelegramNotifier;
+  private skippedMinSize: Array<{ title: string; outcome: string; side: string; calculatedSize: number; price: number; timestamp: string }> = [];
 
   constructor() {
     this.tracker = new TraderTracker(TRACKED_WALLETS);
@@ -108,6 +109,22 @@ export class CopyTradingBot {
         const order = this.sizer.calculate(trade, balance, traderValue, positions);
         if (!order) {
           logger.debug("Order skipped by sizer");
+          continue;
+        }
+
+        // Check minimum 5 token size (Polymarket requirement)
+        if (order.size < 5) {
+          logger.warn(
+            `Min token size: ${order.size.toFixed(2)} tokens < 5 minimum — skipping | ${order.side} @ $${order.price.toFixed(4)} | ${order.title} [${order.outcome}]`,
+          );
+          this.skippedMinSize.push({
+            title: order.title,
+            outcome: order.outcome,
+            side: order.side,
+            calculatedSize: order.size,
+            price: order.price,
+            timestamp: new Date().toISOString(),
+          });
           continue;
         }
 
@@ -241,6 +258,7 @@ export class CopyTradingBot {
         losses: winRate.losses,
         winRate: winRate.rate,
         positions: statsPositions,
+        skippedMinSize: this.skippedMinSize,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

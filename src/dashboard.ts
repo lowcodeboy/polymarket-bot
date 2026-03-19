@@ -139,6 +139,7 @@ function getDayStats(history, day, startBalance) {
       dayWins: null,
       dayLosses: null,
       settlements: null,
+      skippedMinSize: last.skippedMinSize || [],
     };
   }
 
@@ -165,6 +166,7 @@ function getDayStats(history, day, startBalance) {
     dayWins: dayWins,
     dayLosses: dayLosses,
     settlements: daySettlements,
+    skippedMinSize: last.skippedMinSize || [],
   };
 }
 
@@ -295,6 +297,18 @@ function renderWithStats(stats) {
       const pnl = p.pnl !== null ? fmt(p.pnl) : '---';
       const pnlClass = p.pnl !== null ? cls(p.pnl) : 'neutral';
       html += '<tr><td>' + status + '</td><td>' + p.title + ' [' + p.outcome + ']</td><td>' + p.size.toFixed(2) + '</td><td>$' + p.avgPrice.toFixed(4) + '</td><td>' + current + '</td><td class="' + pnlClass + '">' + pnl + '</td></tr>';
+    }
+    html += '</table></div>';
+  }
+
+  // Skipped trades section (min 5 token size)
+  const skipped = dayData.skippedMinSize || [];
+  if (skipped.length > 0) {
+    html += '<div class="positions" style="margin-top: 16px;"><h3>Skipped Trades (Below 5 Token Minimum) — ' + skipped.length + ' total</h3><table><tr><th>Time</th><th>Side</th><th>Market</th><th>Calculated Size</th><th>Price</th><th>Would Cost</th></tr>';
+    for (const s of skipped.slice(-50).reverse()) {
+      const time = new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const cost = (s.calculatedSize * s.price).toFixed(2);
+      html += '<tr><td>' + time + '</td><td>' + s.side + '</td><td>' + s.title + ' [' + s.outcome + ']</td><td class="red">' + s.calculatedSize.toFixed(2) + ' / 5.00</td><td>$' + s.price.toFixed(4) + '</td><td>$' + cost + '</td></tr>';
     }
     html += '</table></div>';
   }
