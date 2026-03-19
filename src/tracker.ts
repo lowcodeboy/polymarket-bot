@@ -59,11 +59,10 @@ export class TraderTracker {
   }
 
   private async fetchRecentActivity(wallet: string): Promise<DetectedTrade[]> {
-    const url = `${DATA_API}/activity`;
+    const url = `${DATA_API}/trades`;
     const resp = await axios.get(url, {
       params: {
         user: wallet,
-        type: "TRADE",
         limit: 50,
         sortBy: "TIMESTAMP",
         sortDirection: "DESC",
