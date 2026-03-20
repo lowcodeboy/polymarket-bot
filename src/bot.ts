@@ -217,8 +217,18 @@ export class CopyTradingBot {
         const result = await this.engine.execute(order);
 
         if (result.success) {
+          // Calculate Polymarket fee: shares × price × 0.10 × (price × (1 - price))²
+          const p = result.filledPrice ?? order.price;
+          const s = result.filledSize ?? order.size;
+          const fee = s * p * 0.10 * Math.pow(p * (1 - p), 2);
+          if (this.paperEngine) {
+            this.paperEngine.addFee(fee);
+          } else if (this.engine instanceof LiveTradingEngine) {
+            (this.engine as any).addFee(fee);
+          }
+
           logger.info(
-            `Executed: ${result.paper ? "PAPER" : "LIVE"} ${order.side} ${result.filledSize?.toFixed(4)} @ $${result.filledPrice?.toFixed(4)} | ${order.title} [${order.outcome}] (order: ${result.orderId})`,
+            `Executed: ${result.paper ? "PAPER" : "LIVE"} ${order.side} ${s.toFixed(4)} @ $${p.toFixed(4)} | fee: $${fee.toFixed(4)} | ${order.title} [${order.outcome}] (order: ${result.orderId})`,
           );
         } else {
           logger.error(`Execution failed: ${result.error}`);
@@ -305,6 +315,8 @@ export class CopyTradingBot {
       );
 
       // Save stats for dashboard
+      const totalFees = this.engine.getTotalFees();
+
       this.statsCollector.saveSnapshot({
         timestamp: new Date().toISOString(),
         cash: balance,
@@ -318,6 +330,7 @@ export class CopyTradingBot {
         wins: winRate.wins,
         losses: winRate.losses,
         winRate: winRate.rate,
+        totalFees,
         positions: statsPositions,
         skippedMinSize: this.skippedMinSize,
       });

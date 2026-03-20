@@ -51,6 +51,7 @@ export class PaperTradingEngine implements TradingEngine {
             positions: cleanPositions,
             totalTrades: data.totalTrades ?? 0,
             totalPnL: isFinite(data.totalPnL ?? 0) ? (data.totalPnL ?? 0) : 0,
+            totalFees: isFinite(data.totalFees ?? 0) ? (data.totalFees ?? 0) : 0,
             settlementWins: data.settlementWins ?? 0,
             settlementLosses: data.settlementLosses ?? 0,
             tradeHistory: data.tradeHistory ?? [],
@@ -66,6 +67,7 @@ export class PaperTradingEngine implements TradingEngine {
       positions: {},
       totalTrades: 0,
       totalPnL: 0,
+      totalFees: 0,
       settlementWins: 0,
       settlementLosses: 0,
       tradeHistory: [],
@@ -205,6 +207,15 @@ export class PaperTradingEngine implements TradingEngine {
 
   getRealizedPnL(): number {
     return this.portfolio.totalPnL;
+  }
+
+  getTotalFees(): number {
+    return this.portfolio.totalFees;
+  }
+
+  addFee(fee: number): void {
+    this.portfolio.totalFees += fee;
+    this.save();
   }
 
   getWinRate(): { wins: number; losses: number; rate: number } {

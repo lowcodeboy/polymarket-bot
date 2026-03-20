@@ -50,6 +50,7 @@ const ctfInterface = new Interface([
 interface LivePortfolio {
   positions: Record<string, PaperPosition>;
   totalPnL: number;
+  totalFees: number;
   settlementWins: number;
   settlementLosses: number;
   totalTrades: number;
@@ -81,6 +82,7 @@ export class LiveTradingEngine implements TradingEngine {
         return {
           positions: data.positions ?? {},
           totalPnL: data.totalPnL ?? 0,
+          totalFees: data.totalFees ?? 0,
           settlementWins: data.settlementWins ?? 0,
           settlementLosses: data.settlementLosses ?? 0,
           totalTrades: data.totalTrades ?? 0,
@@ -93,6 +95,7 @@ export class LiveTradingEngine implements TradingEngine {
     return {
       positions: {},
       totalPnL: 0,
+      totalFees: 0,
       settlementWins: 0,
       settlementLosses: 0,
       totalTrades: 0,
@@ -290,6 +293,15 @@ export class LiveTradingEngine implements TradingEngine {
 
   getRealizedPnL(): number {
     return this.portfolio.totalPnL;
+  }
+
+  getTotalFees(): number {
+    return this.portfolio.totalFees ?? 0;
+  }
+
+  addFee(fee: number): void {
+    this.portfolio.totalFees = (this.portfolio.totalFees ?? 0) + fee;
+    this.save();
   }
 
   getWinRate(): { wins: number; losses: number; rate: number } {

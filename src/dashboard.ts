@@ -195,6 +195,7 @@ function getDayStats(history, day, startBalance) {
       pendingCount: last.pendingCount,
       positions: last.positions,
       timestamp: last.timestamp,
+      totalFees: last.totalFees || 0,
       dayRealizedPnL: null,
       dayWins: null,
       dayLosses: null,
@@ -222,6 +223,7 @@ function getDayStats(history, day, startBalance) {
     pendingCount: last.pendingCount,
     positions: last.positions,
     timestamp: last.timestamp,
+    totalFees: last.totalFees || 0,
     dayRealizedPnL: dayRealizedPnL,
     dayWins: dayWins,
     dayLosses: dayLosses,
@@ -340,6 +342,9 @@ function renderWithStats(stats) {
   if (dayData.pendingCount > 0) {
     html += '<div class="card"><div class="label">Pending (' + dayData.pendingCount + ' markets)</div><div class="value neutral">' + fmtD(dayData.pendingCost) + '</div></div>';
   }
+  html += '<div class="card"><div class="label">Total Fees</div><div class="value red">' + fmtD(dayData.totalFees) + '</div></div>';
+  const netProfit = dayData.overallPnL - dayData.totalFees;
+  html += '<div class="card"><div class="label">Net Profit</div><div class="value ' + cls(netProfit) + '">' + fmt(netProfit) + '</div></div>';
   html += '</div>';
 
   // Charts

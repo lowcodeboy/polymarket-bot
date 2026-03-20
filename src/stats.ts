@@ -25,6 +25,7 @@ export interface StatsSnapshot {
   wins: number;
   losses: number;
   winRate: number;
+  totalFees: number;
   positions: StatsPosition[];
   skippedMinSize?: SkippedTrade[];
 }

@@ -65,6 +65,7 @@ export interface PaperPortfolio {
   positions: Record<string, PaperPosition>;
   totalTrades: number;
   totalPnL: number;
+  totalFees: number;
   settlementWins: number;
   settlementLosses: number;
   tradeHistory: PaperTradeRecord[];
@@ -84,6 +85,7 @@ export interface TradingEngine {
   getBalance(): Promise<number>;
   getPositions(): Record<string, PaperPosition>;
   getRealizedPnL(): number;
+  getTotalFees(): number;
   getWinRate(): { wins: number; losses: number; rate: number };
   settleResolvedMarkets(): Promise<SettlementResult[]>;
 }
