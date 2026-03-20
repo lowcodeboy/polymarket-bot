@@ -2,7 +2,7 @@ import http from "http";
 import https from "https";
 import fs from "fs";
 import path from "path";
-import { DASHBOARD_PORT, WEBHOOK_PORT, PAPER_TRADING } from "./config";
+import { DASHBOARD_PORT, WEBHOOK_PORT, PAPER_TRADING, TRACKED_WALLETS } from "./config";
 import logger from "./logger";
 import type { StatsCollector } from "./stats";
 import type { TelegramNotifier } from "./telegram";
@@ -93,6 +93,9 @@ function getHTML(): string {
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: #0a0a0f; color: #e0e0e0; padding: 20px; }
   h1 { text-align: center; color: #00d4aa; margin-bottom: 8px; font-size: 1.6em; }
+  .tracking { position: absolute; top: 20px; right: 20px; text-align: right; color: #555; font-size: 0.75em; line-height: 1.6; }
+  .tracking span { color: #888; font-family: monospace; }
+  .header { position: relative; }
   .subtitle { text-align: center; color: #666; margin-bottom: 20px; font-size: 0.9em; display: flex; align-items: center; justify-content: center; gap: 8px; }
   .mode-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
   .mode-dot.paper { background: #ffffff; }
@@ -127,8 +130,11 @@ function getHTML(): string {
 </style>
 </head>
 <body>
+<div class="header">
+<div class="tracking">Tracking:<br>${TRACKED_WALLETS.map(w => `<span>${w.slice(0, 6)}...${w.slice(-4)}</span>`).join("<br>")}</div>
 <h1>Polymarket Copy Bot</h1>
 <p class="subtitle"><span class="mode-dot ${PAPER_TRADING ? "paper" : "live"}"></span>${mode} Trading Dashboard</p>
+</div>
 
 <div id="content"><div class="no-data">Waiting for data...</div></div>
 
@@ -342,10 +348,11 @@ function renderWithStats(stats) {
   html += '<div class="chart-box"><h3>Realized P&L' + (isDay ? ' (' + dateName(selectedDay) + ')' : '') + '</h3><div style="height:250px"><canvas id="pnlChart"></canvas></div></div>';
   html += '</div>';
 
-  // Positions table
+  // Positions table (sorted by size descending)
   if (dayData.positions && dayData.positions.length > 0) {
+    const sortedPositions = [...dayData.positions].sort((a, b) => b.size - a.size);
     html += '<div class="positions"><h3>Current Positions</h3><table><tr><th>Status</th><th>Market</th><th>Size</th><th>Entry</th><th>Current</th><th>P&L</th></tr>';
-    for (const p of dayData.positions) {
+    for (const p of sortedPositions) {
       const status = p.pending ? '<span class="status-dot dot-pending"></span>Pending' : '<span class="status-dot dot-open"></span>Open';
       const current = p.currentPrice !== null ? '$' + p.currentPrice.toFixed(4) : '---';
       const pnl = p.pnl !== null ? fmt(p.pnl) : '---';
