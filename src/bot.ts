@@ -133,6 +133,14 @@ export class CopyTradingBot {
       );
 
       try {
+        // Skip partial fills — trader's fill fragments below 5 tokens are not real orders
+        if (trade.size < 5) {
+          logger.debug(
+            `Skipping partial fill: traderTokens=${trade.size.toFixed(2)} < 5 | ${trade.title} [${trade.outcome}]`,
+          );
+          continue;
+        }
+
         const balance = await this.engine.getBalance();
         const traderValue = await this.tracker.getPortfolioValue(trade.wallet);
         logger.info(`Sizer inputs: myBalance=$${balance.toFixed(2)} | traderValue=$${traderValue.toFixed(2)} | tradeUSDC=$${trade.usdcSize.toFixed(2)} | traderTokens=${trade.size.toFixed(2)} | traderPrice=$${trade.price.toFixed(4)}`);
@@ -144,7 +152,7 @@ export class CopyTradingBot {
           continue;
         }
 
-        // If sized order is below 5 tokens, fallback to trader's exact size
+        // If sized order is below 5 tokens, fallback to trader's exact size (guaranteed >= 5)
         if (order.size < 5) {
           const exactUsdc = trade.size * trade.price;
           if (trade.side === "BUY" && exactUsdc > balance) {
@@ -162,7 +170,7 @@ export class CopyTradingBot {
             continue;
           }
           logger.info(
-            `Min token fallback: sizer gave ${order.size.toFixed(2)} tokens < 5 — using trader's exact size: ${trade.size.toFixed(2)} tokens @ $${trade.price.toFixed(4)} ($${exactUsdc.toFixed(2)})`,
+            `Min token fallback: sizer gave ${order.size.toFixed(2)} tokens < 5 — using trader's size: ${trade.size.toFixed(2)} tokens @ $${trade.price.toFixed(4)} ($${exactUsdc.toFixed(2)})`,
           );
           order.size = trade.size;
           order.price = trade.price;
@@ -187,6 +195,18 @@ export class CopyTradingBot {
         );
         order.price = currentPrice;
         order.size = order.usdcAmount / currentPrice;
+
+        // After price update, ensure still >= 5 tokens — round up if needed
+        if (order.size < 5) {
+          const minUsdc = 5 * currentPrice;
+          if (trade.side === "BUY" && minUsdc > balance) {
+            logger.warn(`Post-price min token: need $${minUsdc.toFixed(2)} for 5 tokens but only $${balance.toFixed(2)} — skipping`);
+            continue;
+          }
+          logger.info(`Post-price round-up: ${order.size.toFixed(2)} tokens < 5 → rounding to 5 tokens @ $${currentPrice.toFixed(4)} ($${minUsdc.toFixed(2)})`);
+          order.size = 5;
+          order.usdcAmount = minUsdc;
+        }
 
         // Guard against NaN/Infinity from division
         if (!isFinite(order.size) || order.size <= 0 || !isFinite(order.usdcAmount)) {
