@@ -347,7 +347,7 @@ export class CopyTradingBot {
   private async checkFeeRate(tokenId: string): Promise<void> {
     try {
       const resp = await axios.get(`https://clob.polymarket.com/fee-rate`, {
-        params: { tokenID: tokenId },
+        params: { token_id: tokenId },
         timeout: 5000,
       });
       logger.info(`Fee rate check: ${JSON.stringify(resp.data)}`);
