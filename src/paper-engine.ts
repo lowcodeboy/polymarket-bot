@@ -215,6 +215,7 @@ export class PaperTradingEngine implements TradingEngine {
 
   addFee(fee: number): void {
     this.portfolio.totalFees += fee;
+    this.portfolio.balance -= fee;
     this.save();
   }
 
