@@ -1,4 +1,5 @@
 import fs from "fs";
+import axios from "axios";
 import { TRACKED_WALLETS, PAPER_TRADING, POLL_INTERVAL, PAPER_BALANCE } from "./config";
 import logger from "./logger";
 import { TraderTracker } from "./tracker";
@@ -230,6 +231,9 @@ export class CopyTradingBot {
           logger.info(
             `Executed: ${result.paper ? "PAPER" : "LIVE"} ${order.side} ${s.toFixed(4)} @ $${p.toFixed(4)} | fee: $${fee.toFixed(4)} | ${order.title} [${order.outcome}] (order: ${result.orderId})`,
           );
+
+          // Check actual fee rate from CLOB (non-blocking)
+          this.checkFeeRate(order.tokenId).catch(() => {});
         } else {
           logger.error(`Execution failed: ${result.error}`);
         }
@@ -337,6 +341,20 @@ export class CopyTradingBot {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn(`Failed to print P&L snapshot: ${msg}`);
+    }
+  }
+
+  private async checkFeeRate(tokenId: string): Promise<void> {
+    try {
+      const resp = await axios.get(`https://clob.polymarket.com/fee-rate`, {
+        params: { tokenID: tokenId },
+        timeout: 5000,
+      });
+      logger.info(`Fee rate check: ${JSON.stringify(resp.data)}`);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.debug(`Fee rate check failed (${status}): ${msg}`);
     }
   }
 
