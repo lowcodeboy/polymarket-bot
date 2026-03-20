@@ -354,7 +354,7 @@ export class CopyTradingBot {
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err instanceof Error ? err.message : String(err);
-      logger.debug(`Fee rate check failed (${status}): ${msg}`);
+      logger.info(`Fee rate check failed (${status}): ${msg}`);
     }
   }
 
