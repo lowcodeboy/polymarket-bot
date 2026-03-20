@@ -57,7 +57,8 @@ export const CLOB_PASSPHRASE = optional("CLOB_PASSPHRASE", "");
 export const RELAYER_API_KEY = optional("RELAYER_API_KEY", "");
 
 // Dashboard
-export const DASHBOARD_PORT = parseInt(optional("DASHBOARD_PORT", "3000"), 10);
+export const DASHBOARD_PORT = parseInt(optional("DASHBOARD_PORT", "8443"), 10);
+export const WEBHOOK_PORT = parseInt(optional("WEBHOOK_PORT", "8443"), 10);
 
 // Telegram notifications
 export const TELEGRAM_BOT_TOKEN = optional("TELEGRAM_BOT_TOKEN", "");

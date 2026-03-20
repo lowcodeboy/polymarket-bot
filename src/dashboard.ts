@@ -1,29 +1,83 @@
 import http from "http";
-import { DASHBOARD_PORT, PAPER_TRADING } from "./config";
+import https from "https";
+import fs from "fs";
+import path from "path";
+import { DASHBOARD_PORT, WEBHOOK_PORT, PAPER_TRADING } from "./config";
 import logger from "./logger";
 import type { StatsCollector } from "./stats";
+import type { TelegramNotifier } from "./telegram";
 
-export function startDashboard(statsCollector: StatsCollector): void {
-  const server = http.createServer((req, res) => {
-    if (req.url === "/api/stats") {
-      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-      res.end(JSON.stringify(statsCollector.getStats()));
-      return;
+export function startDashboard(statsCollector: StatsCollector, telegram?: TelegramNotifier): void {
+  // HTTPS server on WEBHOOK_PORT — serves both dashboard and Telegram webhook
+  const certPath = path.resolve("webhook.pem");
+  const keyPath = path.resolve("webhook.key");
+
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    const sslOptions = {
+      cert: fs.readFileSync(certPath),
+      key: fs.readFileSync(keyPath),
+    };
+
+    const server = https.createServer(sslOptions, (req, res) => {
+      if (req.method === "POST" && req.url === "/telegram-webhook" && telegram) {
+        let body = "";
+        req.on("data", (chunk) => { body += chunk; });
+        req.on("end", async () => {
+          try {
+            const data = JSON.parse(body);
+            await telegram.handleWebhook(data);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.warn(`Webhook parse error: ${msg}`);
+          }
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      handleRequest(req, res, statsCollector);
+    });
+
+    server.listen(WEBHOOK_PORT, "0.0.0.0", () => {
+      logger.info(`Dashboard + webhook running on https://0.0.0.0:${WEBHOOK_PORT}`);
+
+      if (telegram) {
+        const publicUrl = `https://${process.env.WEBHOOK_HOST || "34.244.45.20"}:${WEBHOOK_PORT}/telegram-webhook`;
+        telegram.registerWebhook(publicUrl, certPath);
+      }
+    });
+  } else {
+    // Fallback to HTTP if no certs
+    const server = http.createServer((req, res) => {
+      handleRequest(req, res, statsCollector);
+    });
+
+    server.listen(DASHBOARD_PORT, "0.0.0.0", () => {
+      logger.info(`Dashboard running on http://0.0.0.0:${DASHBOARD_PORT}`);
+    });
+
+    if (telegram) {
+      logger.info("No webhook.pem/webhook.key found — Telegram commands disabled");
     }
+  }
+}
 
-    if (req.url === "/" || req.url === "/index.html") {
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(getHTML());
-      return;
-    }
+function handleRequest(req: http.IncomingMessage, res: http.ServerResponse, statsCollector: StatsCollector): void {
+  if (req.url === "/api/stats") {
+    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify(statsCollector.getStats()));
+    return;
+  }
 
-    res.writeHead(404);
-    res.end("Not found");
-  });
+  if (req.url === "/" || req.url === "/index.html") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(getHTML());
+    return;
+  }
 
-  server.listen(DASHBOARD_PORT, "0.0.0.0", () => {
-    logger.info(`Dashboard running on http://0.0.0.0:${DASHBOARD_PORT}`);
-  });
+  res.writeHead(404);
+  res.end("Not found");
 }
 
 function getHTML(): string {

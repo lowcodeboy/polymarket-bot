@@ -3,8 +3,8 @@ import { startDashboard } from "./dashboard";
 
 const bot = new CopyTradingBot();
 
-// Start dashboard
-startDashboard(bot.getStatsCollector());
+// Start dashboard with Telegram webhook support
+startDashboard(bot.getStatsCollector(), bot.getTelegram());
 
 process.on("SIGINT", () => {
   bot.stop();

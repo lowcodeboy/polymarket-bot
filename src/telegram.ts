@@ -1,12 +1,16 @@
 import axios from "axios";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_MILESTONE_STEP, PAPER_BALANCE, PAPER_TRADING } from "./config";
 import logger from "./logger";
+import type { StatsCollector } from "./stats";
 
-const API_URL = TELEGRAM_BOT_TOKEN
-  ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
+const API_BASE = TELEGRAM_BOT_TOKEN
+  ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`
   : "";
+const API_URL = API_BASE ? `${API_BASE}/sendMessage` : "";
 
 const MODE_TAG = PAPER_TRADING ? "[PAPER]" : "[LIVE]";
+
+export type CommandHandler = (chatId: string) => Promise<void>;
 
 export class TelegramNotifier {
   private enabled: boolean;
@@ -16,6 +20,8 @@ export class TelegramNotifier {
   private inactivityTimer: ReturnType<typeof setInterval> | null = null;
   private lastSnapshotSent: number = 0;
   private dailyStats = { trades: 0, wins: 0, losses: 0, startPnL: 0, startSet: false };
+  private commandHandlers: Map<string, CommandHandler> = new Map();
+  private statsCollector: StatsCollector | null = null;
 
   constructor() {
     this.enabled = !!(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID);
@@ -25,6 +31,136 @@ export class TelegramNotifier {
       this.scheduleInactivityCheck();
     } else {
       logger.info("Telegram notifications disabled (no token/chat_id configured)");
+    }
+  }
+
+  setStatsCollector(sc: StatsCollector): void {
+    this.statsCollector = sc;
+    this.registerDefaultCommands();
+  }
+
+  private registerDefaultCommands(): void {
+    this.commandHandlers.set("/snapshot", async (chatId) => {
+      if (!this.statsCollector) return;
+      const stats = this.statsCollector.getStats();
+      if (!stats.current) {
+        await this.sendTo(chatId, "📊 No data yet — waiting for first trade.");
+        return;
+      }
+      const s = stats.current;
+      const overallPnL = s.portfolio - PAPER_BALANCE;
+      const overallSign = overallPnL >= 0 ? "+" : "";
+      const realizedSign = s.realizedPnL >= 0 ? "+" : "";
+      const openSign = s.openPnL >= 0 ? "+" : "";
+      const winTotal = s.wins + s.losses;
+      const winRateText = winTotal > 0 ? `${s.winRate.toFixed(0)}% (${s.wins}W/${s.losses}L)` : "N/A";
+
+      let msg = `📊 <b>${MODE_TAG} P&L Snapshot</b>\n`;
+      msg += `Cash: $${s.cash.toFixed(2)}\n`;
+      msg += `Realized P&L: ${realizedSign}$${s.realizedPnL.toFixed(2)}\n`;
+      msg += `Win Rate: ${winRateText}\n`;
+      msg += `Open: $${s.openInvested.toFixed(2)} (P&L: ${openSign}$${s.openPnL.toFixed(2)})\n`;
+      if (s.pendingCount > 0) {
+        msg += `Pending: $${s.pendingCost.toFixed(2)} (${s.pendingCount} market${s.pendingCount > 1 ? "s" : ""})\n`;
+      }
+      msg += `\n💰 <b>Portfolio: $${s.portfolio.toFixed(2)} (${overallSign}${overallPnL.toFixed(2)})</b>`;
+      await this.sendTo(chatId, msg);
+    });
+
+    this.commandHandlers.set("/positions", async (chatId) => {
+      if (!this.statsCollector) return;
+      const stats = this.statsCollector.getStats();
+      if (!stats.current || stats.current.positions.length === 0) {
+        await this.sendTo(chatId, "📋 No open positions.");
+        return;
+      }
+      let msg = `📋 <b>${MODE_TAG} Open Positions</b>\n\n`;
+      for (const p of stats.current.positions) {
+        const status = p.pending ? "⏳" : "🟢";
+        const current = p.currentPrice !== null ? `$${p.currentPrice.toFixed(4)}` : "---";
+        const pnl = p.pnl !== null ? (p.pnl >= 0 ? `+$${p.pnl.toFixed(2)}` : `-$${Math.abs(p.pnl).toFixed(2)}`) : "---";
+        msg += `${status} ${p.title} [${p.outcome}]\n`;
+        msg += `   ${p.size.toFixed(2)} @ $${p.avgPrice.toFixed(4)} → ${current} | ${pnl}\n\n`;
+      }
+      await this.sendTo(chatId, msg);
+    });
+
+    this.commandHandlers.set("/balance", async (chatId) => {
+      if (!this.statsCollector) return;
+      const stats = this.statsCollector.getStats();
+      if (!stats.current) {
+        await this.sendTo(chatId, "💵 No data yet.");
+        return;
+      }
+      await this.sendTo(chatId, `💵 <b>${MODE_TAG} Cash Balance:</b> $${stats.current.cash.toFixed(2)}`);
+    });
+
+    this.commandHandlers.set("/help", async (chatId) => {
+      await this.sendTo(chatId,
+        `🤖 <b>${MODE_TAG} Bot Commands</b>\n\n` +
+        `/snapshot — Current P&L snapshot\n` +
+        `/positions — Open positions\n` +
+        `/balance — Cash balance\n` +
+        `/help — Show this message`
+      );
+    });
+  }
+
+  async handleWebhook(body: any): Promise<void> {
+    const message = body?.message;
+    if (!message?.text || !message?.chat?.id) return;
+
+    const chatId = String(message.chat.id);
+    // Only respond to our configured chat
+    if (chatId !== TELEGRAM_CHAT_ID) {
+      logger.warn(`Telegram webhook from unauthorized chat: ${chatId}`);
+      return;
+    }
+
+    const command = message.text.trim().split(" ")[0].toLowerCase();
+    const handler = this.commandHandlers.get(command);
+    if (handler) {
+      logger.info(`Telegram command: ${command}`);
+      await handler(chatId);
+    }
+  }
+
+  async registerWebhook(publicUrl: string, certPath: string): Promise<void> {
+    if (!this.enabled) return;
+    try {
+      const fs = await import("fs");
+      const FormData = (await import("form-data")).default;
+      const form = new FormData();
+      form.append("url", publicUrl);
+      form.append("certificate", fs.createReadStream(certPath));
+      form.append("allowed_updates", JSON.stringify(["message"]));
+
+      const resp = await axios.post(`${API_BASE}/setWebhook`, form, {
+        headers: form.getHeaders(),
+        timeout: 10_000,
+      });
+      if (resp.data?.ok) {
+        logger.info(`Telegram webhook registered: ${publicUrl}`);
+      } else {
+        logger.warn(`Telegram webhook registration failed: ${JSON.stringify(resp.data)}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to register Telegram webhook: ${msg}`);
+    }
+  }
+
+  private async sendTo(chatId: string, message: string): Promise<void> {
+    if (!API_URL) return;
+    try {
+      await axios.post(API_URL, {
+        chat_id: chatId,
+        text: message,
+        parse_mode: "HTML",
+      }, { timeout: 10_000 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Telegram send failed: ${msg}`);
     }
   }
 

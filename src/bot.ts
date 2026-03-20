@@ -34,6 +34,7 @@ export class CopyTradingBot {
     this.processed = this.loadProcessed();
     this.statsCollector = new StatsCollector(PAPER_BALANCE);
     this.telegram = new TelegramNotifier();
+    this.telegram.setStatsCollector(this.statsCollector);
 
     if (PAPER_TRADING) {
       const pe = new PaperTradingEngine();
@@ -46,6 +47,10 @@ export class CopyTradingBot {
 
   getStatsCollector(): StatsCollector {
     return this.statsCollector;
+  }
+
+  getTelegram(): TelegramNotifier {
+    return this.telegram;
   }
 
   async start(): Promise<void> {
