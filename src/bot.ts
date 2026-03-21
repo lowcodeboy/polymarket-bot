@@ -129,8 +129,10 @@ export class CopyTradingBot {
       await this.printPnLSnapshot();
       this.lastSnapshotAt = now;
 
-      // Check for go-live signal after snapshot
-      await this.signalDetector.check(this.lastTraderValue).catch(() => {});
+      // Check for go-live signal after snapshot (paper mode only)
+      if (PAPER_TRADING) {
+        await this.signalDetector.check(this.lastTraderValue).catch(() => {});
+      }
     }
   }
 
