@@ -143,6 +143,7 @@ let portfolioChart = null;
 let pnlChart = null;
 let allStats = null;
 let selectedDay = "all";
+let signalTimestamps = [];
 
 function fmt(n) { return n >= 0 ? '+$' + n.toFixed(2) : '-$' + Math.abs(n).toFixed(2); }
 function fmtD(n) { return '$' + n.toFixed(2); }
@@ -251,6 +252,18 @@ function createCharts(history) {
     }
   };
 
+  // Build signal marker data — show signal points on the portfolio line
+  const signalSet = new Set(signalTimestamps);
+  const signalData = history.map(h => {
+    // Match signal to closest snapshot (within 60 seconds)
+    const hTime = new Date(h.timestamp).getTime();
+    for (const st of signalTimestamps) {
+      const sTime = new Date(st).getTime();
+      if (Math.abs(hTime - sTime) < 60000) return h.portfolio;
+    }
+    return null;
+  });
+
   const pCtx = document.getElementById("portfolioChart").getContext("2d");
   if (portfolioChart) portfolioChart.destroy();
   portfolioChart = new Chart(pCtx, {
@@ -264,9 +277,19 @@ function createCharts(history) {
         fill: true,
         tension: 0.3,
         pointRadius: 0
+      }, {
+        data: signalData,
+        borderColor: 'transparent',
+        backgroundColor: '#ff4466',
+        pointRadius: 8,
+        pointStyle: 'triangle',
+        pointBorderColor: '#ff4466',
+        pointBackgroundColor: '#ff4466',
+        showLine: false,
+        label: 'Go-Live Signal'
       }]
     },
-    options: { ...chartOpts, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, ticks: { ...chartOpts.scales.y.ticks, callback: v => '$' + v } } } }
+    options: { ...chartOpts, plugins: { legend: { display: signalData.some(d => d !== null), labels: { color: '#888' } } }, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, ticks: { ...chartOpts.scales.y.ticks, callback: v => '$' + v } } } }
   });
 
   const rCtx = document.getElementById("pnlChart").getContext("2d");
@@ -387,6 +410,7 @@ function renderWithStats(stats) {
 
 function render(stats) {
   allStats = stats;
+  signalTimestamps = stats.signals || [];
   renderWithStats(stats);
 }
 

@@ -44,6 +44,7 @@ export interface DashboardStats {
   current: StatsSnapshot | null;
   history: StatsSnapshot[];
   startBalance: number;
+  signals?: string[]; // timestamps of go-live signals
 }
 
 export class StatsCollector {
@@ -62,10 +63,11 @@ export class StatsCollector {
           current: data.current ?? null,
           history: data.history ?? [],
           startBalance: data.startBalance ?? startBalance,
+          signals: data.signals ?? [],
         };
       }
     } catch {}
-    return { current: null, history: [], startBalance };
+    return { current: null, history: [], startBalance, signals: [] };
   }
 
   saveSnapshot(snapshot: StatsSnapshot): void {
@@ -74,6 +76,14 @@ export class StatsCollector {
     if (this.stats.history.length > MAX_HISTORY) {
       this.stats.history = this.stats.history.slice(-MAX_HISTORY);
     }
+    try {
+      fs.writeFileSync(STATS_FILE, JSON.stringify(this.stats), "utf-8");
+    } catch {}
+  }
+
+  addSignal(timestamp: string): void {
+    if (!this.stats.signals) this.stats.signals = [];
+    this.stats.signals.push(timestamp);
     try {
       fs.writeFileSync(STATS_FILE, JSON.stringify(this.stats), "utf-8");
     } catch {}

@@ -8,6 +8,7 @@ import { PaperTradingEngine } from "./paper-engine";
 import { LiveTradingEngine } from "./live-engine";
 import { StatsCollector } from "./stats";
 import { TelegramNotifier } from "./telegram";
+import { SignalDetector } from "./signal-detector";
 import type { TradingEngine, DetectedTrade } from "./types";
 import type { StatsPosition } from "./stats";
 
@@ -26,8 +27,10 @@ export class CopyTradingBot {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private statsCollector: StatsCollector;
   private telegram: TelegramNotifier;
+  private signalDetector: SignalDetector;
   private skippedMinSize: Array<{ title: string; outcome: string; side: string; calculatedSize: number; price: number; timestamp: string }> = [];
   private lastSnapshotAt = 0;
+  private lastTraderValue = 0;
 
   constructor() {
     this.tracker = new TraderTracker(TRACKED_WALLETS);
@@ -36,6 +39,7 @@ export class CopyTradingBot {
     this.statsCollector = new StatsCollector(PAPER_BALANCE);
     this.telegram = new TelegramNotifier();
     this.telegram.setStatsCollector(this.statsCollector);
+    this.signalDetector = new SignalDetector(this.statsCollector, this.telegram);
 
     if (PAPER_TRADING) {
       const pe = new PaperTradingEngine();
@@ -124,6 +128,9 @@ export class CopyTradingBot {
     if (now - this.lastSnapshotAt >= SNAPSHOT_INTERVAL_MS) {
       await this.printPnLSnapshot();
       this.lastSnapshotAt = now;
+
+      // Check for go-live signal after snapshot
+      await this.signalDetector.check(this.lastTraderValue).catch(() => {});
     }
   }
 
@@ -144,6 +151,7 @@ export class CopyTradingBot {
 
         const balance = await this.engine.getBalance();
         const traderValue = await this.tracker.getPortfolioValue(trade.wallet);
+        this.lastTraderValue = traderValue;
         logger.info(`Sizer inputs: myBalance=$${balance.toFixed(2)} | traderValue=$${traderValue.toFixed(2)} | tradeUSDC=$${trade.usdcSize.toFixed(2)} | traderTokens=${trade.size.toFixed(2)} | traderPrice=$${trade.price.toFixed(4)}`);
         const positions = this.engine.getPositions();
 

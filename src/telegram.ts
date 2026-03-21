@@ -249,6 +249,25 @@ export class TelegramNotifier {
     this.lastTradeTime = Date.now();
   }
 
+  async notifySignal(peakValue: number, drawdownBottom: number, recoveryValue: number, portfolio: number, traderValue: number, winRate: number, wins: number, losses: number): Promise<void> {
+    const drawdownPct = ((peakValue - drawdownBottom) / peakValue * 100).toFixed(1);
+    const recoveryPct = ((recoveryValue - drawdownBottom) / (peakValue - drawdownBottom) * 100).toFixed(1);
+    const winTotal = wins + losses;
+    const winRateText = winTotal > 0 ? `${winRate.toFixed(0)}% (${wins}W/${losses}L)` : "N/A";
+
+    let msg = `🚀 <b>${MODE_TAG} GO-LIVE SIGNAL</b>\n\n`;
+    msg += `Recovery detected after drawdown:\n`;
+    msg += `Peak: $${peakValue.toFixed(2)}\n`;
+    msg += `Bottom: $${drawdownBottom.toFixed(2)} (-${drawdownPct}%)\n`;
+    msg += `Recovery: $${recoveryValue.toFixed(2)} (${recoveryPct}% recovered)\n\n`;
+    msg += `📊 Current Portfolio: $${portfolio.toFixed(2)}\n`;
+    msg += `👤 Trader Value: $${traderValue.toFixed(2)}\n`;
+    msg += `Win Rate: ${winRateText}\n\n`;
+    msg += `💡 <i>Favorable entry point detected</i>`;
+
+    await this.send(msg);
+  }
+
   async notifyError(error: string): Promise<void> {
     await this.send(`⚠️ <b>${MODE_TAG} Bot Error</b>\n${error}`);
   }
