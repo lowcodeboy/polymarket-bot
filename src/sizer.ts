@@ -3,7 +3,6 @@ import {
   MAX_POSITION_PCT,
   MAX_SLIPPAGE,
   MAX_MARKET_EXPOSURE,
-  PAPER_BALANCE,
 } from "./config";
 import logger from "./logger";
 import type { DetectedTrade, BotOrder, PaperPosition } from "./types";
@@ -27,7 +26,7 @@ export class PositionSizer {
       const posKey = `${trade.conditionId}:${trade.outcome}`;
       const existing = positions[posKey];
       const currentExposure = existing ? existing.size * existing.avgPrice : 0;
-      const maxExposure = PAPER_BALANCE * MAX_MARKET_EXPOSURE;
+      const maxExposure = myBalance * MAX_MARKET_EXPOSURE;
 
       if (currentExposure >= maxExposure) {
         logger.debug(
@@ -56,7 +55,7 @@ export class PositionSizer {
       const posKey = `${trade.conditionId}:${trade.outcome}`;
       const existing = positions[posKey];
       const currentExposure = existing ? existing.size * existing.avgPrice : 0;
-      const maxExposure = PAPER_BALANCE * MAX_MARKET_EXPOSURE;
+      const maxExposure = myBalance * MAX_MARKET_EXPOSURE;
       const roomLeft = maxExposure - currentExposure;
 
       if (roomLeft <= 0) return null;
