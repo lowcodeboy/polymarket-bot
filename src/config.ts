@@ -65,6 +65,9 @@ export const TELEGRAM_BOT_TOKEN = optional("TELEGRAM_BOT_TOKEN", "");
 export const TELEGRAM_CHAT_ID = optional("TELEGRAM_CHAT_ID", "");
 export const TELEGRAM_MILESTONE_STEP = parseFloat(optional("TELEGRAM_MILESTONE_STEP", "100"));
 
+// Live bot directory (for paper bot to control live bot)
+export const LIVE_BOT_DIR = optional("LIVE_BOT_DIR", "../polymarket-bot-live");
+
 // Polymarket endpoints
 export const CLOB_HOST = "https://clob.polymarket.com";
 export const DATA_API = "https://data-api.polymarket.com";

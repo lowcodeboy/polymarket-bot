@@ -2,7 +2,7 @@ import axios from "axios";
 import fs from "fs";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_MILESTONE_STEP, PAPER_BALANCE, PAPER_TRADING } from "./config";
 import logger from "./logger";
-import { isPaused, setPaused } from "./control";
+import { isPaused, setPaused, setLivePaused, isLivePaused } from "./control";
 import type { StatsCollector } from "./stats";
 
 const API_BASE = TELEGRAM_BOT_TOKEN
@@ -97,60 +97,78 @@ export class TelegramNotifier {
       await this.sendTo(chatId, `💵 <b>${MODE_TAG} Cash Balance:</b> $${stats.current.cash.toFixed(2)}`);
     });
 
-    // Control commands — paper mode
+    // Control commands — paper bot is the command center for both bots
     this.commandHandlers.set("/go-paper", async (chatId) => {
-      if (!PAPER_TRADING) {
-        await this.sendTo(chatId, "⚠️ This bot is running in LIVE mode. Use /go instead.");
-        return;
-      }
+      if (!PAPER_TRADING) return; // Live bot ignores paper commands
       setPaused(false);
-      await this.sendTo(chatId, `▶️ <b>${MODE_TAG} Bot ACTIVATED</b>\nPaper bot is now placing orders.`);
+      await this.sendTo(chatId, `▶️ <b>[PAPER] Bot ACTIVATED</b>\nPaper bot is now placing orders.`);
     });
 
     this.commandHandlers.set("/pause-paper", async (chatId) => {
-      if (!PAPER_TRADING) {
-        await this.sendTo(chatId, "⚠️ This bot is running in LIVE mode. Use /pause instead.");
-        return;
-      }
+      if (!PAPER_TRADING) return; // Live bot ignores paper commands
       setPaused(true);
-      await this.sendTo(chatId, `⏸ <b>${MODE_TAG} Bot PAUSED</b>\nPaper bot stopped placing orders. Settlements continue.`);
+      await this.sendTo(chatId, `⏸ <b>[PAPER] Bot PAUSED</b>\nPaper bot stopped placing orders. Settlements continue.`);
     });
 
-    // Control commands — live mode
     this.commandHandlers.set("/go", async (chatId) => {
-      if (PAPER_TRADING) {
-        await this.sendTo(chatId, "⚠️ This bot is running in PAPER mode. Use /go-paper instead.");
-        return;
+      if (!PAPER_TRADING) {
+        // Live bot handles its own /go
+        setPaused(false);
+        await this.sendTo(chatId, `🟢 <b>[LIVE] Bot ACTIVATED</b>\nLive bot is now placing orders. Be careful!`);
+      } else {
+        // Paper bot writes to live bot's control file
+        try {
+          setLivePaused(false);
+          await this.sendTo(chatId, `🟢 <b>[LIVE] Bot ACTIVATED</b>\nLive bot is now placing orders. Be careful!`);
+        } catch {
+          await this.sendTo(chatId, `⚠️ Failed to activate live bot. Check LIVE_BOT_DIR config.`);
+        }
       }
-      setPaused(false);
-      await this.sendTo(chatId, `🟢 <b>${MODE_TAG} Bot ACTIVATED</b>\nLive bot is now placing orders. Be careful!`);
     });
 
     this.commandHandlers.set("/pause", async (chatId) => {
-      if (PAPER_TRADING) {
-        await this.sendTo(chatId, "⚠️ This bot is running in PAPER mode. Use /pause-paper instead.");
-        return;
+      if (!PAPER_TRADING) {
+        // Live bot handles its own /pause
+        setPaused(true);
+        await this.sendTo(chatId, `⏸ <b>[LIVE] Bot PAUSED</b>\nLive bot stopped placing orders. Settlements continue.`);
+      } else {
+        // Paper bot writes to live bot's control file
+        try {
+          setLivePaused(true);
+          await this.sendTo(chatId, `⏸ <b>[LIVE] Bot PAUSED</b>\nLive bot stopped placing orders. Settlements continue.`);
+        } catch {
+          await this.sendTo(chatId, `⚠️ Failed to pause live bot. Check LIVE_BOT_DIR config.`);
+        }
       }
-      setPaused(true);
-      await this.sendTo(chatId, `⏸ <b>${MODE_TAG} Bot PAUSED</b>\nLive bot stopped placing orders. Settlements continue.`);
     });
 
-    // Status command
+    // Status command — shows both bots status from paper bot
     this.commandHandlers.set("/status", async (chatId) => {
-      const status = isPaused() ? "⏸ PAUSED" : "▶️ ACTIVE";
-      await this.sendTo(chatId, `${status} — ${MODE_TAG} bot is ${isPaused() ? "not placing orders" : "placing orders"}`);
+      if (!PAPER_TRADING) return; // Only paper bot responds to /status
+      const paperStatus = isPaused() ? "⏸ PAUSED" : "▶️ ACTIVE";
+      const liveStatus = isLivePaused() ? "⏸ PAUSED" : "▶️ ACTIVE";
+      await this.sendTo(chatId,
+        `📊 <b>Bot Status</b>\n\n` +
+        `[PAPER] ${paperStatus}\n` +
+        `[LIVE] ${liveStatus}`
+      );
     });
 
     this.commandHandlers.set("/help", async (chatId) => {
+      if (!PAPER_TRADING) return; // Only paper bot responds to /help
       await this.sendTo(chatId,
-        `🤖 <b>${MODE_TAG} Bot Commands</b>\n\n` +
+        `🤖 <b>Bot Commands</b>\n\n` +
+        `<b>Info:</b>\n` +
         `/snapshot — Current P&L snapshot\n` +
         `/positions — Open positions\n` +
         `/balance — Cash balance\n` +
-        `/status — Check if bot is active or paused\n` +
-        (PAPER_TRADING
-          ? `/go-paper — Start placing orders\n/pause-paper — Stop placing orders\n`
-          : `/go — Start placing orders\n/pause — Stop placing orders\n`) +
+        `/status — Both bots status\n\n` +
+        `<b>Paper control:</b>\n` +
+        `/go-paper — Start paper orders\n` +
+        `/pause-paper — Stop paper orders\n\n` +
+        `<b>Live control:</b>\n` +
+        `/go — Start live orders\n` +
+        `/pause — Stop live orders\n\n` +
         `/help — Show this message`
       );
     });

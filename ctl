@@ -14,9 +14,12 @@ if [ -z "$MODE" ] || [ -z "$ACTION" ]; then
   exit 1
 fi
 
+PAPER_DIR="$HOME/polymarket-bot"
+LIVE_DIR="$HOME/polymarket-bot-live"
+
 case "$MODE" in
-  paper) FILE="paper_control.json" ;;
-  live)  FILE="live_control.json" ;;
+  paper) FILE="$PAPER_DIR/paper_control.json" ;;
+  live)  FILE="$LIVE_DIR/live_control.json" ;;
   *)
     echo "Error: mode must be 'paper' or 'live'"
     exit 1
@@ -33,4 +36,4 @@ case "$ACTION" in
 esac
 
 echo "{\"paused\":$PAUSED}" > "$FILE"
-echo "$MODE bot: $([ "$PAUSED" = "true" ] && echo "PAUSED" || echo "ACTIVE")"
+echo "$MODE bot: $([ "$PAUSED" = "true" ] && echo "PAUSED" || echo "ACTIVE") ($FILE)"
