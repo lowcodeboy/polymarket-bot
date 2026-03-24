@@ -42,8 +42,7 @@ export function startDashboard(statsCollector: StatsCollector, telegram?: Telegr
     server.listen(WEBHOOK_PORT, "0.0.0.0", () => {
       logger.info(`Dashboard + webhook running on https://0.0.0.0:${WEBHOOK_PORT}`);
 
-      if (telegram && PAPER_TRADING) {
-        // Only paper bot registers the Telegram webhook — it's the command center
+      if (telegram) {
         const publicUrl = `https://${process.env.WEBHOOK_HOST || "34.244.45.20"}:${WEBHOOK_PORT}/telegram-webhook`;
         telegram.registerWebhook(publicUrl, certPath);
       }
