@@ -9,7 +9,6 @@ import { LiveTradingEngine } from "./live-engine";
 import { StatsCollector } from "./stats";
 import { TelegramNotifier } from "./telegram";
 import { SignalDetector } from "./signal-detector";
-import { isPaused } from "./control";
 import type { TradingEngine, DetectedTrade } from "./types";
 import type { StatsPosition } from "./stats";
 
@@ -144,12 +143,6 @@ export class CopyTradingBot {
       );
 
       try {
-        // Skip if bot is paused
-        if (isPaused()) {
-          logger.debug(`Paused — skipping order for ${trade.title} [${trade.outcome}]`);
-          continue;
-        }
-
         // Skip partial fills — trader's fill fragments below 5 tokens are not real orders
         if (trade.size < 5) {
           logger.debug(
